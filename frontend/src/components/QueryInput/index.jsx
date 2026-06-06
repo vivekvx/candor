@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useModels } from '../../hooks/useModels'
+import { useDebateHistory } from '../../hooks/useDebateHistory'
 
 const CUSTOM_ID = '__custom__'
 
@@ -50,10 +51,19 @@ export default function QueryInput({ onStart }) {
   const [hoveredAgent, setHoveredAgent] = useState(null)
   const [mounted, setMounted] = useState(false)
   const { models, loading: modelsLoading } = useModels()
+  const { getHistory, clearHistory } = useDebateHistory()
+  const [history, setHistory] = useState(() => getHistory().slice(0, 5))
 
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 50)
     return () => clearTimeout(t)
+  }, [])
+
+  // Refresh history when window focused (debate may have completed in same tab)
+  useEffect(() => {
+    const refresh = () => setHistory(getHistory().slice(0, 5))
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
   }, [])
 
   useEffect(() => {
@@ -397,6 +407,61 @@ export default function QueryInput({ onStart }) {
               ))}
             </div>
           </div>
+
+          {/* ── Recent debates ── */}
+          {history.length > 0 && (
+            <div style={{ marginTop: '32px', opacity: mounted ? 1 : 0, animation: mounted ? 'agentIn 400ms ease both' : 'none', animationDelay: '800ms' }}>
+              <div style={{ height: '1px', backgroundColor: 'var(--border)', marginBottom: '20px' }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.1em', color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+                  Recent Debates
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { clearHistory(); setHistory([]) }}
+                  style={{ background: 'none', border: 'none', fontFamily: 'var(--font-ui)', fontSize: '11px', color: 'var(--text-dim)', cursor: 'pointer', padding: 0 }}
+                >
+                  Clear
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {history.map(entry => {
+                  const ago = (() => {
+                    const diff = Date.now() - new Date(entry.timestamp).getTime()
+                    const h = Math.floor(diff / 3600000)
+                    if (h < 1) return 'just now'
+                    if (h < 24) return `${h}h ago`
+                    return `${Math.floor(h / 24)}d ago`
+                  })()
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => setQuery(entry.query)}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        background: 'transparent', border: '1px solid transparent',
+                        borderRadius: '6px', padding: '8px 10px', cursor: 'pointer',
+                        textAlign: 'left', transition: 'border-color 150ms ease, background-color 150ms ease',
+                        width: '100%',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.backgroundColor = 'var(--bg-card)' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.backgroundColor = 'transparent' }}
+                    >
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '12px' }}>
+                        {entry.query.length > 60 ? entry.query.slice(0, 60) + '…' : entry.query}
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--advocate)' }}>● {entry.bull_score}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--challenger)' }}>● {entry.bear_score}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-dim)' }}>{ago}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

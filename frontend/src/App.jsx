@@ -1,7 +1,8 @@
-import { useState, Component } from 'react'
+import { useState, Component, useEffect } from 'react'
 import { useDebate } from './hooks/useDebate'
 import QueryInput from './components/QueryInput'
 import DebateArena from './components/DebateArena'
+import UserProfile, { useUserProfile } from './components/UserProfile'
 
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null } }
@@ -28,8 +29,22 @@ class ErrorBoundary extends Component {
 
 export default function App() {
   const { state, startDebate, reset } = useDebate()
+  const { profile } = useUserProfile()
   const [currentQuery, setCurrentQuery] = useState('')
+  const [showProfile, setShowProfile] = useState(false)
+  const [sharedDebate, setSharedDebate] = useState(null)
   const isDebating = state.status !== 'idle'
+
+  // Check for shared debate URL on mount
+  useEffect(() => {
+    const match = window.location.pathname.match(/^\/debate\/([a-f0-9]+)$/)
+    if (match) {
+      fetch(`/api/debate/${match[1]}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data) setSharedDebate(data) })
+        .catch(() => {})
+    }
+  }, [])
 
   const handleStart = (query, model) => {
     setCurrentQuery(query)
@@ -39,15 +54,99 @@ export default function App() {
   const handleReset = () => {
     setCurrentQuery('')
     reset()
+    // Clear shared debate URL
+    if (sharedDebate) {
+      setSharedDebate(null)
+      window.history.pushState({}, '', '/')
+    }
+  }
+
+  // Shared debate read-only view
+  if (sharedDebate) {
+    const sharedState = {
+      status: 'complete',
+      advocateResearch: sharedDebate.advocate_research ? JSON.parse(sharedDebate.advocate_research) : null,
+      challengerResearch: sharedDebate.challenger_research ? JSON.parse(sharedDebate.challenger_research) : null,
+      advocateRebuttal: sharedDebate.advocate_rebuttal ? JSON.parse(sharedDebate.advocate_rebuttal) : null,
+      challengerRebuttal: sharedDebate.challenger_rebuttal ? JSON.parse(sharedDebate.challenger_rebuttal) : null,
+      verdict: sharedDebate.verdict,
+      metadata: sharedDebate.metadata,
+      error: null,
+    }
+    return (
+      <ErrorBoundary onReset={handleReset}>
+        <div style={{ minHeight: '100vh' }}>
+          <div style={{
+            backgroundColor: 'rgba(99,102,241,0.12)',
+            borderBottom: '1px solid var(--border)',
+            padding: '10px 24px',
+            fontFamily: 'var(--font-ui)',
+            fontSize: '13px',
+            color: 'var(--text-secondary)',
+            textAlign: 'center',
+          }}>
+            Shared debate · read-only ·{' '}
+            <button onClick={handleReset} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit' }}>
+              Run your own →
+            </button>
+          </div>
+          <DebateArena state={sharedState} currentQuery={sharedDebate.query} onReset={handleReset} />
+        </div>
+      </ErrorBoundary>
+    )
   }
 
   return (
     <ErrorBoundary onReset={handleReset}>
-      <div style={{ minHeight: '100vh' }}>
+      <div style={{ minHeight: '100vh', position: 'relative' }}>
+        {/* Profile button — top right */}
+        {!isDebating && (
+          <button
+            onClick={() => setShowProfile(true)}
+            style={{
+              position: 'fixed',
+              top: '16px',
+              right: '20px',
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              padding: '6px 12px',
+              fontFamily: 'var(--font-ui)',
+              fontSize: '12px',
+              color: profile ? 'var(--text-secondary)' : 'var(--text-dim)',
+              cursor: 'pointer',
+              zIndex: 100,
+            }}
+          >
+            {profile?.role ? `${profile.role}` : 'Edit Profile'}
+          </button>
+        )}
+
         {!isDebating ? (
           <QueryInput onStart={handleStart} />
         ) : (
           <DebateArena state={state} currentQuery={currentQuery} onReset={handleReset} />
+        )}
+
+        {/* Profile modal */}
+        {showProfile && <UserProfile onClose={() => setShowProfile(false)} />}
+
+        {/* Subtle profile prompt if no profile set */}
+        {!isDebating && !profile && (
+          <div style={{
+            position: 'fixed',
+            bottom: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            fontFamily: 'var(--font-ui)',
+            fontSize: '12px',
+            color: 'var(--text-dim)',
+            cursor: 'pointer',
+          }}
+            onClick={() => setShowProfile(true)}
+          >
+            Add your profile for personalized verdicts →
+          </div>
         )}
       </div>
     </ErrorBoundary>

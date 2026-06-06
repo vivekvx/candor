@@ -69,6 +69,17 @@ async def _call_llm(model: str, system_prompt: str, user_content: str, state: De
             last_error = e
             logger.warning("Auth error on %s (step=%s), trying fallback", attempt_model, step)
             continue
+        except litellm.BadRequestError as e:
+            err_str = str(e).lower()
+            if "credit" in err_str or "billing" in err_str or "quota" in err_str:
+                last_error = e
+                logger.warning("Billing error on %s (step=%s), trying fallback", attempt_model, step)
+                continue
+            raise
+        except litellm.NotFoundError as e:
+            last_error = e
+            logger.warning("Model not found %s (step=%s), trying fallback", attempt_model, step)
+            continue
 
     raise last_error or RuntimeError(f"All models exhausted for step {step}")
 
@@ -120,10 +131,22 @@ class DebateOrchestrator:
     async def run_arbitrator(self) -> dict:
         model = get_model_for_step("arbitrator", self.state.model)
 
+        profile_context = ""
+        if self.state.user_profile:
+            p = self.state.user_profile
+            profile_context = (
+                "\n\nUSER CONTEXT (calibrate your advice to this person):\n"
+                f"- Role: {p.get('role') or 'Not specified'}\n"
+                f"- Experience: {p.get('experience') or 'Not specified'}\n"
+                f"- Current CTC: {p.get('current_ctc_lpa') or 'Not specified'} LPA\n"
+                f"- Risk appetite: {p.get('risk_appetite') or 'Balanced'}\n"
+            )
+
         system_prompt = (
             _load_prompt("arbitrator")
             .replace("{advocate_output}", self.state.advocate_research)
             .replace("{challenger_output}", self.state.challenger_research)
+            + profile_context
         )
 
         full_transcript = (

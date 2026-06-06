@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import { useDebateHistory } from './useDebateHistory'
 
 function formatError(message) {
   if (!message) return 'Something went wrong. Please try again.'
@@ -31,17 +32,24 @@ const INITIAL_STATE = {
 export function useDebate() {
   const [state, setState] = useState(INITIAL_STATE)
   const abortRef = useRef(null)
+  const { saveDebate } = useDebateHistory()
+  const queryRef = useRef('')
 
   const startDebate = useCallback(async (query, model) => {
     if (abortRef.current) abortRef.current.abort()
     abortRef.current = new AbortController()
+    queryRef.current = query
     setState({ ...INITIAL_STATE, status: 'connecting' })
+
+    const profile = (() => {
+      try { return JSON.parse(localStorage.getItem('candor_profile') || 'null') } catch { return null }
+    })()
 
     try {
       const response = await fetch('/api/debate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, model }),
+        body: JSON.stringify({ query, model, user_profile: profile }),
         signal: abortRef.current.signal,
       })
 
@@ -59,7 +67,9 @@ export function useDebate() {
           if (!line.startsWith('data: ')) continue
           try {
             const event = JSON.parse(line.slice(6))
-            handleEvent(event, setState)
+            handleEvent(event, setState, (verdict, metadata, debateId) => {
+              saveDebate(queryRef.current, verdict, metadata)
+            })
           } catch {}
         }
       }
@@ -78,7 +88,7 @@ export function useDebate() {
   return { state, startDebate, reset }
 }
 
-function handleEvent(event, setState) {
+function handleEvent(event, setState, saveHistory) {
   switch (event.type) {
     case 'status':
       setState(s => ({
@@ -105,7 +115,10 @@ function handleEvent(event, setState) {
       setState(s => ({ ...s, verdict: event.content }))
       break
     case 'complete':
-      setState(s => ({ ...s, status: 'complete', metadata: event.metadata }))
+      setState(s => {
+        if (s.verdict) saveHistory(s.verdict, event.metadata, event.debate_id)
+        return { ...s, status: 'complete', metadata: { ...event.metadata, debate_id: event.debate_id } }
+      })
       break
     case 'error':
       setState(s => ({ ...s, status: 'error', error: formatError(event.message) }))

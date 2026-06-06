@@ -163,7 +163,7 @@ export default function DebateArena({ state, currentQuery, onReset }) {
             </div>
           )}
 
-          <VerdictCard verdict={verdict} />
+          <VerdictCard verdict={verdict} debateId={metadata?.debate_id} />
 
           {/* Footer metadata */}
           {isComplete && metadata && (

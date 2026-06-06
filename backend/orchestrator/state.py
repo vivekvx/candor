@@ -23,6 +23,7 @@ class DebateState:
     total_cost_usd: float = 0.0
     started_at: float = field(default_factory=time.time)
     completed_at: Optional[float] = None
+    user_profile: Optional[dict] = None
 
     def add_usage(self, input_tokens: int, output_tokens: int, cost: float):
         self.total_input_tokens += input_tokens

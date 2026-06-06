@@ -68,7 +68,37 @@ function CopyButton({ verdict }) {
   )
 }
 
-export default function VerdictCard({ verdict }) {
+function ShareButton({ debateId }) {
+  const [label, setLabel] = useState('Share')
+  function handleShare() {
+    const url = `${window.location.origin}/debate/${debateId}`
+    navigator.clipboard.writeText(url).then(() => {
+      setLabel('Link copied! ✓')
+      setTimeout(() => setLabel('Share'), 2000)
+    })
+  }
+  if (!debateId) return null
+  return (
+    <button onClick={handleShare} className="share-button" style={{
+      background: 'transparent', border: 'none',
+      color: label === 'Share' ? 'var(--text-secondary)' : 'var(--advocate)',
+      cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: '12px',
+      padding: '4px 8px', transition: 'color 150ms ease',
+    }}>{label}</button>
+  )
+}
+
+function ExportButton() {
+  return (
+    <button onClick={() => window.print()} className="export-button" style={{
+      background: 'transparent', border: 'none',
+      color: 'var(--text-secondary)', cursor: 'pointer',
+      fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '4px 8px',
+    }}>Export PDF</button>
+  )
+}
+
+export default function VerdictCard({ verdict, debateId }) {
   if (!verdict) return null
   const v = verdict
 
@@ -84,7 +114,11 @@ export default function VerdictCard({ verdict }) {
         <div style={{ fontFamily: 'var(--font-display)', fontSize: '24px', fontWeight: 700, color: 'var(--arbitrator)' }}>
           ⚖ VERDICT
         </div>
-        <CopyButton verdict={v} />
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <ShareButton debateId={debateId} />
+          <ExportButton />
+          <CopyButton verdict={v} />
+        </div>
       </div>
 
       {(v.bull_score !== undefined || v.bear_score !== undefined) && (

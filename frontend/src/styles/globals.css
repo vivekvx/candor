@@ -73,3 +73,30 @@ body {
   40% { content: '..'; }
   60%, 100% { content: '...'; }
 }
+
+.print-header { display: none; }
+
+@media print {
+  .query-input-section,
+  .debate-timeline,
+  .copy-button,
+  .share-button,
+  .export-button,
+  .model-selector { display: none !important; }
+
+  body { background: white !important; color: black !important; }
+
+  .agent-card {
+    border: 1px solid #ccc !important;
+    break-inside: avoid;
+    margin-bottom: 20px;
+  }
+
+  .print-header {
+    display: block !important;
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 20px;
+  }
+}

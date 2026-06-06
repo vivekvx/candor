@@ -1,7 +1,10 @@
+import hashlib
 import json
 import time
+from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -12,10 +15,33 @@ from backend.mcp_server.tools.sanitizer import INJECTION_PATTERNS
 
 router = APIRouter(prefix="/api", tags=["debate"])
 
+DEBATES_DIR = Path("debate_cache")
+DEBATES_DIR.mkdir(exist_ok=True)
+
+
+class UserProfile(BaseModel):
+    role: Optional[str] = None
+    experience: Optional[str] = None
+    current_ctc_lpa: Optional[float] = None
+    risk_appetite: Optional[str] = "Balanced"
+
 
 class DebateRequest(BaseModel):
     query: str
     model: str = "groq/llama-3.3-70b-versatile"
+    user_profile: Optional[UserProfile] = None
+
+
+def save_debate(debate_id: str, data: dict):
+    path = DEBATES_DIR / f"{debate_id}.json"
+    path.write_text(json.dumps(data))
+
+
+def load_debate(debate_id: str) -> dict | None:
+    path = DEBATES_DIR / f"{debate_id}.json"
+    if path.exists():
+        return json.loads(path.read_text())
+    return None
 
 
 @router.post("/debate")
@@ -24,7 +50,12 @@ async def run_debate(request: DebateRequest):
 
     async def generate():
         try:
-            state = DebateState(query=request.query, model=request.model)
+            profile_dict = request.user_profile.model_dump() if request.user_profile else None
+            state = DebateState(
+                query=request.query,
+                model=request.model,
+                user_profile=profile_dict,
+            )
             orchestrator = DebateOrchestrator(state)
 
             yield f"data: {json.dumps({'type': 'status', 'stage': 'round_1_start'})}\n\n"
@@ -46,7 +77,24 @@ async def run_debate(request: DebateRequest):
                 "cost_usd": round(state.total_cost_usd, 6),
                 "duration_seconds": round(time.time() - state.started_at, 2),
             }
-            yield f"data: {json.dumps({'type': 'complete', 'metadata': metadata})}\n\n"
+
+            # Save debate for shareable link
+            debate_id = hashlib.md5(
+                f"{request.query}{state.started_at}".encode()
+            ).hexdigest()[:8]
+
+            save_debate(debate_id, {
+                "query": request.query,
+                "advocate_research": state.advocate_research,
+                "challenger_research": state.challenger_research,
+                "advocate_rebuttal": state.advocate_rebuttal,
+                "challenger_rebuttal": state.challenger_rebuttal,
+                "verdict": state.verdict,
+                "metadata": metadata,
+                "created_at": state.started_at,
+            })
+
+            yield f"data: {json.dumps({'type': 'complete', 'metadata': metadata, 'debate_id': debate_id})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
@@ -56,6 +104,15 @@ async def run_debate(request: DebateRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/debate/{debate_id}")
+async def get_debate(debate_id: str):
+    """Retrieve a saved debate by ID."""
+    data = load_debate(debate_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Debate not found")
+    return data
 
 
 @router.get("/models")
