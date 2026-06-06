@@ -1,5 +1,22 @@
 import { useState, useCallback, useRef } from 'react'
 
+function formatError(message) {
+  if (!message) return 'Something went wrong. Please try again.'
+  const msg = message.toLowerCase()
+  if (msg.includes('rate limit') || msg.includes('ratelimit')) {
+    const waitMatch = message.match(/try again in (\d+)m/i)
+    if (waitMatch) return `Rate limited — Groq free tier limit reached. Try again in ${waitMatch[1]} minutes.`
+    return 'Rate limited — Groq free tier limit reached. Try again in a few minutes.'
+  }
+  if (msg.includes('invalid api key') || msg.includes('invalid_api_key')) {
+    return 'Invalid API key — check your GROQ_API_KEY in backend/.env'
+  }
+  if (msg.includes('connection') || msg.includes('network')) {
+    return 'Connection error — make sure the backend is running on port 8000.'
+  }
+  return 'Something went wrong. Please try again.'
+}
+
 const INITIAL_STATE = {
   status: 'idle',
   advocateResearch: null,
@@ -48,7 +65,7 @@ export function useDebate() {
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setState(s => ({ ...s, status: 'error', error: err.message }))
+        setState(s => ({ ...s, status: 'error', error: formatError(err.message) }))
       }
     }
   }, [])
@@ -91,7 +108,7 @@ function handleEvent(event, setState) {
       setState(s => ({ ...s, status: 'complete', metadata: event.metadata }))
       break
     case 'error':
-      setState(s => ({ ...s, status: 'error', error: event.message }))
+      setState(s => ({ ...s, status: 'error', error: formatError(event.message) }))
       break
   }
 }

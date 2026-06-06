@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 function ScoreBar({ label, score, color }) {
   const [width, setWidth] = useState(0)
   useEffect(() => {
-    const t = setTimeout(() => setWidth((score / 10) * 100), 100)
+    const t = setTimeout(() => setWidth(score * 10), 100)
     return () => clearTimeout(t)
   }, [score])
   return (
@@ -21,6 +21,53 @@ function ScoreBar({ label, score, color }) {
   )
 }
 
+function CopyButton({ verdict }) {
+  const [label, setLabel] = useState('Copy')
+
+  function handleCopy() {
+    const text = [
+      'CANDOR VERDICT',
+      '',
+      `Bull Score: ${verdict.bull_score}/10`,
+      `Bear Score: ${verdict.bear_score}/10`,
+      '',
+      `VERDICT: ${verdict.verdict}`,
+      '',
+      verdict.what_to_find_out?.length ? 'WHAT TO FIND OUT:' : null,
+      verdict.what_to_find_out?.map((q, i) => `${i + 1}. ${q}`).join('\n'),
+      '',
+      verdict.if_i_were_you ? 'IF I WERE YOU:' : null,
+      verdict.if_i_were_you,
+      '',
+      verdict.negotiation_tip ? 'NEGOTIATION TIP:' : null,
+      verdict.negotiation_tip,
+    ].filter(Boolean).join('\n')
+
+    navigator.clipboard.writeText(text).then(() => {
+      setLabel('Copied ✓')
+      setTimeout(() => setLabel('Copy'), 2000)
+    })
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      style={{
+        background: 'transparent',
+        border: 'none',
+        color: label === 'Copy' ? 'var(--text-secondary)' : 'var(--advocate)',
+        cursor: 'pointer',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '12px',
+        padding: '4px 8px',
+        transition: 'color 150ms ease',
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
 export default function VerdictCard({ verdict }) {
   if (!verdict) return null
   const v = verdict
@@ -33,8 +80,11 @@ export default function VerdictCard({ verdict }) {
       padding: '32px',
       marginTop: '16px',
     }}>
-      <div style={{ fontFamily: 'var(--font-display)', fontSize: '24px', fontWeight: 700, color: 'var(--arbitrator)', marginBottom: '24px' }}>
-        ⚖ VERDICT
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: '24px', fontWeight: 700, color: 'var(--arbitrator)' }}>
+          ⚖ VERDICT
+        </div>
+        <CopyButton verdict={v} />
       </div>
 
       {(v.bull_score !== undefined || v.bear_score !== undefined) && (

@@ -24,6 +24,25 @@ const AGENT_CONFIG = {
   },
 }
 
+function renderSource(source) {
+  if (!source) return null
+  if (source.startsWith('http')) {
+    let domain = source
+    try { domain = new URL(source).hostname.replace('www.', '') } catch {}
+    return (
+      <a href={source} target="_blank" rel="noopener noreferrer"
+        style={{ color: 'var(--text-secondary)', fontSize: '11px', marginLeft: '6px', fontFamily: 'var(--font-mono)' }}>
+        [{domain}]
+      </a>
+    )
+  }
+  return (
+    <span style={{ color: 'var(--text-dim)', fontSize: '11px', marginLeft: '6px', fontFamily: 'var(--font-mono)' }}>
+      [{source}]
+    </span>
+  )
+}
+
 function SkeletonBar({ width = '100%', height = '14px' }) {
   return (
     <div style={{
@@ -93,7 +112,7 @@ function ConfidenceBar({ value, color }) {
         minWidth: '36px',
         textAlign: 'right',
       }}>
-        {value}%
+        {Math.round((value || 0) * 100)}%
       </span>
     </div>
   )
@@ -263,9 +282,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                   lineHeight: 1.5,
                 }}>
                   {typeof item === "string" ? item : item.advocate_claimed || item.point || item.text || JSON.stringify(item)}
-                  {item.source && (
-                    <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>({item.source})</span>
-                  )}
+                  {renderSource(item.source)}
                 </li>
               ))}
             </ul>
@@ -284,9 +301,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                   lineHeight: 1.5,
                 }}>
                   {item.advocate_claimed || item.point || item.claim || (typeof item === "string" ? item : JSON.stringify(item))}
-                  {item.source && (
-                    <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>({item.source})</span>
-                  )}
+                  {renderSource(item.source)}
                 </li>
               ))}
             </ul>
@@ -345,9 +360,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                         lineHeight: 1.5,
                       }}>
                         Counter: {item.counter}
-                        {item.source && (
-                          <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>[{item.source}]</span>
-                        )}
+                        {renderSource(item.source)}
                       </div>
                     )}
                   </div>
@@ -365,9 +378,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                     lineHeight: 1.5,
                   }}>
                     {typeof item === "string" ? item : item.advocate_claimed || item.point || item.text || JSON.stringify(item)}
-                    {item.source && (
-                      <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>({item.source})</span>
-                    )}
+                    {renderSource(item.source)}
                   </li>
                 ))}
               </ul>
@@ -383,9 +394,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                     lineHeight: 1.5,
                   }}>
                     {item.advocate_claimed || item.point || item.claim || (typeof item === "string" ? item : JSON.stringify(item))}
-                    {item.source && (
-                      <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>({item.source})</span>
-                    )}
+                    {renderSource(item.source)}
                   </li>
                 ))}
               </ul>
