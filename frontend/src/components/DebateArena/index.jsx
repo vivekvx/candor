@@ -4,7 +4,7 @@ import VerdictCard from './VerdictCard'
 
 const LIVE_STATUSES = new Set(['round_1', 'cross_exam', 'arbitrating'])
 
-export default function DebateArena({ state, onReset }) {
+export default function DebateArena({ state, currentQuery, onReset }) {
   const { status, advocateResearch, challengerResearch, advocateRebuttal, challengerRebuttal, verdict, metadata, error } = state
 
   const isLive = LIVE_STATUSES.has(status)
@@ -14,7 +14,7 @@ export default function DebateArena({ state, onReset }) {
   const challengerActive = (status === 'round_1' && !challengerResearch) || (status === 'cross_exam' && !challengerRebuttal)
   const arbitratorActive = status === 'arbitrating' && !verdict
 
-  const query = metadata?.query || state.query || ''
+  const query = currentQuery || state.query || ''
 
   return (
     <>
@@ -180,14 +180,14 @@ export default function DebateArena({ state, onReset }) {
                   Tokens: <span style={{ color: 'var(--text-secondary)' }}>{metadata.total_tokens.toLocaleString()}</span>
                 </div>
               )}
-              {metadata.total_cost !== undefined && (
+              {metadata.cost_usd !== undefined && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-dim)' }}>
-                  Cost: <span style={{ color: 'var(--text-secondary)' }}>${metadata.total_cost.toFixed(4)}</span>
+                  Cost: <span style={{ color: 'var(--text-secondary)' }}>${metadata.cost_usd.toFixed(4)}</span>
                 </div>
               )}
-              {metadata.elapsed_ms !== undefined && (
+              {metadata.duration_seconds !== undefined && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-dim)' }}>
-                  Time: <span style={{ color: 'var(--text-secondary)' }}>{(metadata.elapsed_ms / 1000).toFixed(1)}s</span>
+                  Time: <span style={{ color: 'var(--text-secondary)' }}>{(metadata.duration_seconds).toFixed(1)}s</span>
                 </div>
               )}
             </div>

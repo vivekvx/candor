@@ -65,7 +65,7 @@ function ConfidenceBar({ value, color }) {
   const [animatedWidth, setAnimatedWidth] = useState(0)
 
   useEffect(() => {
-    const t = setTimeout(() => setAnimatedWidth(value || 0), 100)
+    const t = setTimeout(() => setAnimatedWidth((value || 0) * 100), 100)
     return () => clearTimeout(t)
   }, [value])
 
