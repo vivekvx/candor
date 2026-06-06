@@ -9,7 +9,7 @@ from typing import Any
 import litellm
 
 from backend.config import settings
-from backend.orchestrator.router import get_model_for_step
+from backend.orchestrator.router import get_model_for_step, get_fallback_models
 from backend.orchestrator.state import DebateState
 
 os.environ["GROQ_API_KEY"] = settings.groq_api_key or ""
@@ -24,35 +24,53 @@ def _load_prompt(name: str) -> str:
 
 
 async def _call_llm(model: str, system_prompt: str, user_content: str, state: DebateState, step: str = "") -> dict[str, Any]:
-    response = await litellm.acompletion(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        temperature=0.7,
-        response_format={"type": "json_object"},
-    )
-    usage = response.usage
-    cost = 0.0
-    if usage:
+    models_to_try = [model] + get_fallback_models(model)
+    last_error = None
+
+    for attempt_model in models_to_try:
         try:
-            cost = litellm.completion_cost(model=model, completion_response=response)
-        except Exception:
+            response = await litellm.acompletion(
+                model=attempt_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.7,
+                response_format={"type": "json_object"},
+            )
+            usage = response.usage
             cost = 0.0
-        state.add_usage(
-            input_tokens=usage.prompt_tokens or 0,
-            output_tokens=usage.completion_tokens or 0,
-            cost=cost or 0.0,
-        )
-    if step:
-        state.step_costs[step] = round(cost or 0.0, 8)
-    content = response.choices[0].message.content
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        logger.error("Failed to parse LLM JSON response: %s", content[:200])
-        return {"error": "Failed to parse model response", "raw": content}
+            if usage:
+                try:
+                    cost = litellm.completion_cost(model=attempt_model, completion_response=response)
+                except Exception:
+                    cost = 0.0
+                state.add_usage(
+                    input_tokens=usage.prompt_tokens or 0,
+                    output_tokens=usage.completion_tokens or 0,
+                    cost=cost or 0.0,
+                )
+            if step:
+                state.step_costs[step] = round(cost or 0.0, 8)
+            if attempt_model != model:
+                logger.warning("Fell back from %s to %s for step %s", model, attempt_model, step)
+            content = response.choices[0].message.content
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                logger.error("Failed to parse LLM JSON response: %s", content[:200])
+                return {"error": "Failed to parse model response", "raw": content}
+
+        except litellm.RateLimitError as e:
+            last_error = e
+            logger.warning("Rate limit on %s (step=%s), trying fallback", attempt_model, step)
+            continue
+        except litellm.AuthenticationError as e:
+            last_error = e
+            logger.warning("Auth error on %s (step=%s), trying fallback", attempt_model, step)
+            continue
+
+    raise last_error or RuntimeError(f"All models exhausted for step {step}")
 
 
 class DebateOrchestrator:

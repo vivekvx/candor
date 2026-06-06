@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useModels } from '../../hooks/useModels'
 
+const CUSTOM_ID = '__custom__'
+
 const EXAMPLES = [
   "Should I join Zepto as a backend engineer for 42 LPA?",
   "Is this ESOP offer from a Series A actually worth anything?",
@@ -11,9 +13,12 @@ const EXAMPLES = [
 export default function QueryInput({ onStart }) {
   const [query, setQuery] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
+  const [customModel, setCustomModel] = useState('')
+  const [isCustom, setIsCustom] = useState(false)
   const [placeholderIndex, setPlaceholderIndex] = useState(0)
   const [loading, setLoading] = useState(false)
   const [focused, setFocused] = useState(false)
+  const [customFocused, setCustomFocused] = useState(false)
   const { models, loading: modelsLoading } = useModels()
 
   useEffect(() => {
@@ -30,11 +35,25 @@ export default function QueryInput({ onStart }) {
     }
   }, [models])
 
+  const handleSelectChange = (e) => {
+    const val = e.target.value
+    if (val === CUSTOM_ID) {
+      setIsCustom(true)
+      setSelectedModel(CUSTOM_ID)
+    } else {
+      setIsCustom(false)
+      setSelectedModel(val)
+    }
+  }
+
+  const activeModel = isCustom ? customModel.trim() : selectedModel
+  const customValid = !isCustom || customModel.trim().includes('/')
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!query.trim() || loading) return
+    if (!query.trim() || loading || !activeModel || !customValid) return
     setLoading(true)
-    await onStart(query.trim(), selectedModel)
+    await onStart(query.trim(), activeModel)
     setLoading(false)
   }
 
@@ -43,6 +62,12 @@ export default function QueryInput({ onStart }) {
       <style>{`
         .candor-textarea::placeholder { color: var(--text-dim); }
         .candor-textarea:focus { outline: none; }
+        .custom-model-input::placeholder { color: var(--text-dim); }
+        .custom-model-input:focus { outline: none; }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
         @keyframes shimmer {
           0% { background-position: 200% 0; }
           100% { background-position: -200% 0; }
@@ -109,39 +134,79 @@ export default function QueryInput({ onStart }) {
 
             <div style={{
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               justifyContent: 'space-between',
               marginTop: '12px',
               gap: '12px',
             }}>
-              <select
-                value={selectedModel}
-                onChange={e => setSelectedModel(e.target.value)}
-                disabled={modelsLoading}
-                style={{
-                  backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text-secondary)',
-                  padding: '10px 16px',
-                  borderRadius: 'var(--radius)',
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: '14px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
-              >
-                {modelsLoading && <option value="">Loading models...</option>}
-                {!modelsLoading && models && models.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}{m.free ? ' (free)' : ''}
-                  </option>
-                ))}
-              </select>
+              {/* Model selector + custom input */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0, flex: 1 }}>
+                <select
+                  value={selectedModel}
+                  onChange={handleSelectChange}
+                  disabled={modelsLoading}
+                  style={{
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)',
+                    padding: '10px 16px',
+                    borderRadius: 'var(--radius)',
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: '14px',
+                    outline: 'none',
+                    cursor: 'pointer',
+                    width: '100%',
+                  }}
+                >
+                  {modelsLoading && <option value="">Loading models...</option>}
+                  {!modelsLoading && models && models.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}{m.free ? ' (free)' : ''}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_ID}>Custom model…</option>
+                </select>
+
+                {isCustom && (
+                  <div style={{ animation: 'fadeIn 150ms ease' }}>
+                    <input
+                      className="custom-model-input"
+                      type="text"
+                      value={customModel}
+                      onChange={e => setCustomModel(e.target.value)}
+                      onFocus={() => setCustomFocused(true)}
+                      onBlur={() => setCustomFocused(false)}
+                      placeholder="provider/model-name"
+                      autoFocus
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        backgroundColor: 'var(--bg-card)',
+                        border: `1px solid ${customFocused ? 'var(--accent)' : customValid ? 'var(--border)' : 'var(--challenger)'}`,
+                        color: 'var(--text-primary)',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius)',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '13px',
+                        transition: 'border-color 150ms ease',
+                      }}
+                    />
+                    <div style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '11px',
+                      color: 'var(--text-dim)',
+                      marginTop: '5px',
+                      lineHeight: 1.6,
+                    }}>
+                      groq/llama-3.1-8b-instant · anthropic/claude-opus-4-5 · gemini/gemini-2.0-flash
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <button
                 type="submit"
-                disabled={loading || !query.trim()}
+                disabled={loading || !query.trim() || !customValid || (isCustom && !customModel.trim())}
                 style={{
                   backgroundColor: 'var(--accent)',
                   color: 'white',
@@ -151,11 +216,13 @@ export default function QueryInput({ onStart }) {
                   fontWeight: 500,
                   fontSize: '15px',
                   border: 'none',
-                  cursor: loading || !query.trim() ? 'not-allowed' : 'pointer',
+                  cursor: (loading || !query.trim()) ? 'not-allowed' : 'pointer',
                   minWidth: '120px',
-                  opacity: loading ? 0.7 : 1,
+                  opacity: (loading || (isCustom && !customModel.trim())) ? 0.7 : 1,
                   transition: 'opacity 150ms ease',
                   flexShrink: 0,
+                  alignSelf: 'flex-start',
+                  marginTop: '1px',
                 }}
               >
                 {loading ? 'Analyzing...' : 'Analyze'}
