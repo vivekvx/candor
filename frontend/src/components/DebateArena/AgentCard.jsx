@@ -283,7 +283,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                   color: 'var(--text-secondary)',
                   lineHeight: 1.5,
                 }}>
-                  {item.point || item.claim || item}
+                  {item.advocate_claimed || item.point || item.claim || (typeof item === "string" ? item : JSON.stringify(item))}
                   {item.source && (
                     <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>({item.source})</span>
                   )}
@@ -382,7 +382,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                     color: 'var(--text-secondary)',
                     lineHeight: 1.5,
                   }}>
-                    {item.point || item.claim || item}
+                    {item.advocate_claimed || item.point || item.claim || (typeof item === "string" ? item : JSON.stringify(item))}
                     {item.source && (
                       <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>({item.source})</span>
                     )}
