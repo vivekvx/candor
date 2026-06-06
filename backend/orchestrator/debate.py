@@ -1,14 +1,18 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 import litellm
 
+from backend.config import settings
 from backend.orchestrator.router import AgentRole, get_model_for_role
 from backend.orchestrator.state import DebateState
+
+os.environ["GROQ_API_KEY"] = settings.groq_api_key or ""
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +35,10 @@ async def _call_llm(model: str, system_prompt: str, user_content: str, state: De
     )
     usage = response.usage
     if usage:
-        cost = litellm.completion_cost(completion_response=response)
+        try:
+            cost = litellm.completion_cost(model=model, completion_response=response)
+        except Exception:
+            cost = 0.0
         state.add_usage(
             input_tokens=usage.prompt_tokens or 0,
             output_tokens=usage.completion_tokens or 0,

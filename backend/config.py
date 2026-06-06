@@ -1,4 +1,9 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+load_dotenv(Path(__file__).parent / ".env")
 
 
 class Settings(BaseSettings):
@@ -14,7 +19,7 @@ class Settings(BaseSettings):
     default_model: str = "groq/llama-3.3-70b-versatile"
 
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).parent / ".env")
 
 
 settings = Settings()

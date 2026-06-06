@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,3 +18,9 @@ app.add_middleware(
 
 app.include_router(debate_router)
 app.include_router(health_router)
+
+
+@app.on_event("startup")
+async def startup_event():
+    if settings.groq_api_key:
+        os.environ["GROQ_API_KEY"] = settings.groq_api_key
