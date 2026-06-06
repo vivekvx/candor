@@ -3,10 +3,8 @@ Agentic tool-calling loop for Candor debate agents.
 
 An agent receives a prompt, autonomously decides which tools to call,
 executes them, reads results, and repeats until it has enough information
-to produce a final JSON answer. This replaces the previous single-shot
-LLM call with a proper research loop.
-
-The loop is capped at MAX_TOOL_CALLS_PER_AGENT to prevent runaway costs.
+to produce a final JSON answer. When the primary model rate-limits,
+the loop automatically falls back to the next provider in the chain.
 """
 
 import json
@@ -23,6 +21,134 @@ logger = logging.getLogger(__name__)
 # Cap per agent per round — enough for thorough research, prevents runaway cost
 MAX_TOOL_CALLS_PER_AGENT = 5
 
+# Provider fallback chain — tried in order when the preferred model rate-limits.
+# Groq is first (free, fast), then Gemini (free tier), then Anthropic (paid, best quality).
+FALLBACK_MODEL_CHAIN = [
+    "groq/llama-3.3-70b-versatile",
+    "gemini/gemini-2.0-flash",
+    "anthropic/claude-haiku-3-5",
+]
+
+# Substrings that identify a rate-limit or quota error in an exception message.
+# These are recoverable — we retry with the next provider.
+# Logic errors (bad key format, invalid request) are not in this list and are not retried.
+RATE_LIMIT_ERROR_SIGNALS = [
+    "rate limit",
+    "ratelimit",
+    "quota",
+    "tokens per day",
+    "tpd",
+    "429",
+    "resource exhausted",
+    "too many requests",
+    "credit",
+    "billing",
+]
+
+
+def is_rate_limit_error(error: Exception) -> bool:
+    """
+    Return True if the error represents a recoverable rate-limit or quota exhaustion.
+
+    Checks for known signal substrings in the lowercased error message.
+    Returns False for logic errors (bad API key format, malformed request)
+    because retrying a different provider won't fix those.
+    """
+    error_message = str(error).lower()
+    return any(signal in error_message for signal in RATE_LIMIT_ERROR_SIGNALS)
+
+
+def build_model_priority_list(preferred_model: str) -> list[str]:
+    """
+    Build the ordered list of models to attempt for one LLM call.
+
+    The preferred model comes first. Every other model in FALLBACK_MODEL_CHAIN
+    follows, with the preferred model excluded to avoid duplicates.
+    """
+    fallbacks_without_preferred = [
+        model for model in FALLBACK_MODEL_CHAIN
+        if model != preferred_model
+    ]
+    return [preferred_model] + fallbacks_without_preferred
+
+
+async def attempt_llm_call(
+    model: str,
+    messages: list[dict],
+    use_tools: bool,
+) -> Any:
+    """
+    Make one LiteLLM completion call with or without tool schemas.
+
+    Raises on any error — the caller owns the retry and fallback logic.
+
+    Args:
+        model: LiteLLM model string e.g. groq/llama-3.3-70b-versatile
+        messages: Full conversation history to send
+        use_tools: If True, attaches DEBATE_TOOL_SCHEMAS and sets tool_choice=auto
+    """
+    if use_tools:
+        return await litellm.acompletion(
+            model=model,
+            messages=messages,
+            tools=DEBATE_TOOL_SCHEMAS,
+            tool_choice="auto",
+            temperature=0.7,
+        )
+    return await litellm.acompletion(
+        model=model,
+        messages=messages,
+        temperature=0.7,
+    )
+
+
+async def call_llm_with_fallback(
+    messages: list[dict],
+    use_tools: bool,
+    preferred_model: str,
+) -> tuple[Any, str]:
+    """
+    Call LiteLLM with automatic provider fallback on rate-limit errors.
+
+    Tries the preferred model first. On a rate-limit or quota error, logs
+    the failure and tries the next provider in the priority list. Fallback
+    is silent to the end user — they only see an error if all providers fail.
+
+    Args:
+        messages: Conversation history to send
+        use_tools: Whether to include tool schemas in the call
+        preferred_model: Model to try first (from user or router selection)
+
+    Returns:
+        Tuple of (LiteLLM response object, model string that succeeded)
+
+    Raises:
+        RuntimeError if every provider in the priority list is exhausted
+    """
+    models_to_try = build_model_priority_list(preferred_model)
+    last_error = None
+
+    for model in models_to_try:
+        try:
+            response = await attempt_llm_call(
+                model=model,
+                messages=messages,
+                use_tools=use_tools,
+            )
+            return response, model
+
+        except Exception as error:
+            if is_rate_limit_error(error):
+                logger.warning(
+                    "Model '%s' rate limited — trying next provider", model
+                )
+                last_error = error
+                continue
+            # Non-rate-limit errors are not retried — raise immediately
+            raise
+
+    raise RuntimeError(f"All providers exhausted. Last error: {last_error}")
+
 
 async def run_agent_with_tools(
     system_prompt: str,
@@ -31,16 +157,16 @@ async def run_agent_with_tools(
     agent_name: str,
 ) -> str:
     """
-    Run one debate agent through the full tool-calling loop.
+    Run one debate agent through the full tool-calling loop with provider fallback.
 
-    The agent calls tools autonomously until it decides it has enough
-    research to write its final answer, or until MAX_TOOL_CALLS_PER_AGENT
-    is reached. Returns the final response as a raw string (JSON expected).
+    The agent calls tools autonomously until it decides it has enough research
+    to write its final answer, or until MAX_TOOL_CALLS_PER_AGENT is reached.
+    Each LLM call uses call_llm_with_fallback so rate limits are handled silently.
 
     Args:
         system_prompt: Agent role and instructions (loaded from .md file)
         user_message: The debate query or context the agent is responding to
-        model: LiteLLM model string e.g. groq/llama-3.3-70b-versatile
+        model: Preferred LiteLLM model string
         agent_name: Human-readable label for logging e.g. "Advocate"
 
     Returns:
@@ -49,21 +175,38 @@ async def run_agent_with_tools(
     messages = _build_initial_messages(system_prompt, user_message)
     total_tool_calls_made = 0
 
-    logger.info("%s starting agent loop with model %s", agent_name, model)
+    logger.info("%s starting agent loop with preferred model %s", agent_name, model)
 
     while total_tool_calls_made < MAX_TOOL_CALLS_PER_AGENT:
-        response = await _call_llm_with_tools(model, messages)
+        try:
+            response, model_used = await call_llm_with_fallback(
+                messages=messages,
+                use_tools=True,
+                preferred_model=model,
+            )
+        except RuntimeError as error:
+            logger.error("%s all providers exhausted: %s", agent_name, error)
+            return json.dumps({
+                "error": "All AI providers rate limited",
+                "message": str(error),
+            })
+
+        if model_used != model:
+            logger.info(
+                "%s fell back from %s to %s", agent_name, model, model_used
+            )
+
         assistant_message = response.choices[0].message
 
         if not _has_tool_calls(assistant_message):
             logger.info(
-                "%s finished after %d tool call(s)",
+                "%s finished after %d tool call(s) using %s",
                 agent_name,
                 total_tool_calls_made,
+                model_used,
             )
             return assistant_message.content or ""
 
-        # Agent requested tools — execute them and feed results back
         messages.append(assistant_message)
         tool_result_messages = await _execute_all_tool_calls(
             assistant_message.tool_calls, agent_name
@@ -83,7 +226,7 @@ def _build_initial_messages(system_prompt: str, user_message: str) -> list[dict]
     """
     Build the starting conversation for an agent.
 
-    Kept as a function so tests can verify the message structure
+    Kept as a named function so tests can verify the message structure
     without running a full agent loop.
     """
     return [
@@ -92,28 +235,12 @@ def _build_initial_messages(system_prompt: str, user_message: str) -> list[dict]
     ]
 
 
-async def _call_llm_with_tools(model: str, messages: list[dict]) -> Any:
-    """
-    Call LiteLLM with the full tool schema attached.
-
-    tool_choice='auto' means the model decides whether to call a tool
-    or answer directly — we never force it.
-    """
-    return await litellm.acompletion(
-        model=model,
-        messages=messages,
-        tools=DEBATE_TOOL_SCHEMAS,
-        tool_choice="auto",
-        temperature=0.7,
-    )
-
-
 def _has_tool_calls(assistant_message: Any) -> bool:
     """
     Return True if the assistant message contains one or more tool call requests.
 
-    Defensive check — some providers return None or omit the attribute
-    when no tools are called.
+    Defensive — some providers return None or omit the attribute entirely
+    when the model decides not to call any tools.
     """
     return (
         hasattr(assistant_message, "tool_calls")
@@ -151,20 +278,25 @@ async def _execute_all_tool_calls(
     return tool_result_messages
 
 
-async def _get_final_answer_without_tools(model: str, messages: list[dict]) -> str:
+async def _get_final_answer_without_tools(
+    model: str, messages: list[dict]
+) -> str:
     """
-    Force a final answer from the agent with tools disabled.
+    Force a final answer after hitting the tool call limit.
 
-    Called only when the agent has hit MAX_TOOL_CALLS_PER_AGENT.
-    The accumulated tool results in messages give it enough context
-    to answer without calling more tools.
+    Uses the fallback chain here too — hitting the tool limit does not mean
+    we give up on getting an answer from the best available provider.
     """
-    response = await litellm.acompletion(
-        model=model,
-        messages=messages,
-        temperature=0.7,
-    )
-    return response.choices[0].message.content or ""
+    try:
+        response, model_used = await call_llm_with_fallback(
+            messages=messages,
+            use_tools=False,
+            preferred_model=model,
+        )
+        return response.choices[0].message.content or ""
+    except RuntimeError as error:
+        logger.error("Final answer failed — all providers exhausted: %s", error)
+        return json.dumps({"error": str(error)})
 
 
 def parse_json_response(raw_response: str) -> dict:
@@ -182,7 +314,7 @@ def parse_json_response(raw_response: str) -> dict:
 
     if cleaned.startswith("```"):
         lines = cleaned.split("\n")
-        # Drop opening fence line and closing fence line
+        # Drop the opening fence (```json) and closing fence (```)
         cleaned = "\n".join(lines[1:-1])
 
     try:
