@@ -4,6 +4,10 @@ from backend.mcp_server.tools.company_health import CompanyHealthInput, search_c
 from backend.mcp_server.tools.compensation import CompensationInput, benchmark_compensation
 from backend.mcp_server.tools.founder_signals import FounderSignalsInput, get_founder_signals
 from backend.mcp_server.tools.market_timing import MarketTimingInput, get_market_timing
+from backend.mcp_server.tools.company_intelligence import (
+    CompanyIntelligenceInput,
+    get_company_intelligence,
+)
 
 mcp = FastMCP("candor_mcp")
 
@@ -69,6 +73,32 @@ async def candor_get_market_timing(
     return await get_market_timing(
         MarketTimingInput(company_name=company_name, industry=industry, country=country)
     )
+
+
+@mcp.tool(
+    description=(
+        "Fetch real Indian company intelligence from MCA government filings "
+        "via ZaubaCorp. Returns charge documents (debt signals), director "
+        "information, compliance status, and salary benchmarks from AmbitionBox. "
+        "Use this for any Indian startup evaluation — it surfaces signals "
+        "that web search cannot find. Government filings are legally filed facts."
+    ),
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": True,
+    },
+)
+async def candor_get_company_intelligence(
+    company_name: str,
+    city: str = None,
+) -> dict:
+    """MCP tool wrapper for the company intelligence scraper."""
+    input_data = CompanyIntelligenceInput(
+        company_name=company_name,
+        city=city,
+    )
+    return await get_company_intelligence(input_data)
 
 
 if __name__ == "__main__":

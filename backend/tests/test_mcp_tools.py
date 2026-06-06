@@ -144,3 +144,38 @@ def test_cost_analysis_endpoint():
     data = response.json()
     assert "savings_percent" in data
     assert data["savings_percent"] > 0
+
+
+# Test 13: cache key is consistent regardless of case and whitespace
+def test_cache_key_consistent():
+    from backend.mcp_server.tools.cache import get_cache_key
+    assert get_cache_key("Zepto") == get_cache_key("zepto")
+    assert get_cache_key("Zepto") == get_cache_key("ZEPTO ")
+    assert get_cache_key("zepto") == get_cache_key("  Zepto  ")
+
+
+# Test 14: red flag analysis catches multiple active charge documents
+def test_red_flag_multiple_charges():
+    from backend.mcp_server.tools.company_intelligence import analyze_red_flags
+    company_data_with_charges = {
+        "registration": {"status": "Active"},
+        "charges": [
+            {"status": "Open", "amount": "5 Cr"},
+            {"status": "Open", "amount": "3 Cr"},
+            {"status": "Open", "amount": "2 Cr"},
+        ],
+        "directors": [{"name": "John"}, {"name": "Jane"}],
+    }
+    red_flags = analyze_red_flags(company_data_with_charges)
+    assert any("HIGH DEBT" in flag for flag in red_flags)
+
+
+# Test 15: positive signals identify a debt-free active company
+def test_positive_signal_debt_free():
+    from backend.mcp_server.tools.company_intelligence import analyze_positive_signals
+    company_data_debt_free = {
+        "registration": {"status": "Active", "paid_up_capital": "10 Cr"},
+        "charges": [],
+    }
+    positive_signals = analyze_positive_signals(company_data_debt_free)
+    assert any("debt-free" in signal for signal in positive_signals)
