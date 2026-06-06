@@ -262,7 +262,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                   color: 'var(--text-secondary)',
                   lineHeight: 1.5,
                 }}>
-                  {item.point || item.text || item}
+                  {typeof item === "string" ? item : item.advocate_claimed || item.point || item.text || JSON.stringify(item)}
                   {item.source && (
                     <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>({item.source})</span>
                   )}
@@ -335,7 +335,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                       lineHeight: 1.5,
                       marginBottom: '4px',
                     }}>
-                      They claimed: {item.claim || item.point || item}
+                      They claimed: {typeof item === "string" ? item : item.advocate_claimed || item.claim || item.point || JSON.stringify(item)}
                     </div>
                     {item.counter && (
                       <div style={{
@@ -364,7 +364,7 @@ export default function AgentCard({ agent, round1Data, round2Data, isActive, isC
                     color: 'var(--text-secondary)',
                     lineHeight: 1.5,
                   }}>
-                    {item.point || item.text || item}
+                    {typeof item === "string" ? item : item.advocate_claimed || item.point || item.text || JSON.stringify(item)}
                     {item.source && (
                       <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>({item.source})</span>
                     )}
