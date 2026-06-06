@@ -1,1 +1,8 @@
-# Phase 2 will implement this
+from fastapi import APIRouter
+
+router = APIRouter(tags=["health"])
+
+
+@router.get("/health")
+async def health():
+    return {"status": "ok", "service": "candor"}
