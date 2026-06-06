@@ -1,1 +1,97 @@
-// Phase 1 will implement this
+import { useState, useCallback, useRef } from 'react'
+
+const INITIAL_STATE = {
+  status: 'idle',
+  advocateResearch: null,
+  challengerResearch: null,
+  advocateRebuttal: null,
+  challengerRebuttal: null,
+  verdict: null,
+  metadata: null,
+  error: null,
+}
+
+export function useDebate() {
+  const [state, setState] = useState(INITIAL_STATE)
+  const abortRef = useRef(null)
+
+  const startDebate = useCallback(async (query, model) => {
+    if (abortRef.current) abortRef.current.abort()
+    abortRef.current = new AbortController()
+    setState({ ...INITIAL_STATE, status: 'connecting' })
+
+    try {
+      const response = await fetch('/api/debate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, model }),
+        signal: abortRef.current.signal,
+      })
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            handleEvent(event, setState)
+          } catch {}
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setState(s => ({ ...s, status: 'error', error: err.message }))
+      }
+    }
+  }, [])
+
+  const reset = useCallback(() => {
+    if (abortRef.current) abortRef.current.abort()
+    setState(INITIAL_STATE)
+  }, [])
+
+  return { state, startDebate, reset }
+}
+
+function handleEvent(event, setState) {
+  switch (event.type) {
+    case 'status':
+      setState(s => ({
+        ...s,
+        status: event.stage === 'round_1_start' ? 'round_1'
+              : event.stage === 'cross_examination_start' ? 'cross_exam'
+              : event.stage === 'arbitration_start' ? 'arbitrating'
+              : s.status
+      }))
+      break
+    case 'advocate_research':
+      setState(s => ({ ...s, advocateResearch: event.content }))
+      break
+    case 'challenger_research':
+      setState(s => ({ ...s, challengerResearch: event.content }))
+      break
+    case 'advocate_rebuttal':
+      setState(s => ({ ...s, advocateRebuttal: event.content }))
+      break
+    case 'challenger_rebuttal':
+      setState(s => ({ ...s, challengerRebuttal: event.content }))
+      break
+    case 'verdict':
+      setState(s => ({ ...s, verdict: event.content }))
+      break
+    case 'complete':
+      setState(s => ({ ...s, status: 'complete', metadata: event.metadata }))
+      break
+    case 'error':
+      setState(s => ({ ...s, status: 'error', error: event.message }))
+      break
+  }
+}
