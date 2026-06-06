@@ -4,7 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from backend.mcp_server.tools import tavily_search
-from backend.mcp_server.tools.sanitizer import sanitize_web_content, was_sanitized
+from backend.mcp_server.tools.sanitizer import sanitize_web_content
 
 MarketDirection = Literal["growing", "contracting", "stable", "unclear"]
 
@@ -29,8 +29,9 @@ async def get_market_timing(inp: MarketTimingInput) -> dict[str, Any]:
     for batch in results:
         for r in batch:
             raw = r.get("content", "") + " " + r.get("title", "")
-            cleaned = sanitize_web_content(raw)
-            if was_sanitized(raw, cleaned):
+            san = sanitize_web_content(raw)
+            cleaned = san.cleaned_text
+            if san.was_sanitized:
                 any_sanitized = True
             url = r.get("url", "")
             if url:

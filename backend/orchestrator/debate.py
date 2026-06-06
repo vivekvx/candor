@@ -9,7 +9,7 @@ from typing import Any
 import litellm
 
 from backend.config import settings
-from backend.orchestrator.router import AgentRole, get_model_for_role
+from backend.orchestrator.router import get_model_for_step
 from backend.orchestrator.state import DebateState
 
 os.environ["GROQ_API_KEY"] = settings.groq_api_key or ""
@@ -23,7 +23,7 @@ def _load_prompt(name: str) -> str:
     return (PROMPTS_DIR / f"{name}.md").read_text()
 
 
-async def _call_llm(model: str, system_prompt: str, user_content: str, state: DebateState) -> dict[str, Any]:
+async def _call_llm(model: str, system_prompt: str, user_content: str, state: DebateState, step: str = "") -> dict[str, Any]:
     response = await litellm.acompletion(
         model=model,
         messages=[
@@ -34,6 +34,7 @@ async def _call_llm(model: str, system_prompt: str, user_content: str, state: De
         response_format={"type": "json_object"},
     )
     usage = response.usage
+    cost = 0.0
     if usage:
         try:
             cost = litellm.completion_cost(model=model, completion_response=response)
@@ -44,6 +45,8 @@ async def _call_llm(model: str, system_prompt: str, user_content: str, state: De
             output_tokens=usage.completion_tokens or 0,
             cost=cost or 0.0,
         )
+    if step:
+        state.step_costs[step] = round(cost or 0.0, 8)
     content = response.choices[0].message.content
     try:
         return json.loads(content)
@@ -57,15 +60,15 @@ class DebateOrchestrator:
         self.state = state
 
     async def run_round_one(self) -> tuple[dict, dict]:
-        advocate_model = get_model_for_role(AgentRole.ADVOCATE, self.state.model if self.state.model != "groq/llama-3.3-70b-versatile" else None)
-        challenger_model = get_model_for_role(AgentRole.CHALLENGER, self.state.model if self.state.model != "groq/llama-3.3-70b-versatile" else None)
+        advocate_model = get_model_for_step("advocate_round1", self.state.model)
+        challenger_model = get_model_for_step("challenger_round1", self.state.model)
 
         advocate_prompt = _load_prompt("advocate")
         challenger_prompt = _load_prompt("challenger").replace("{advocate_output}", "")
 
         advocate_out, challenger_out = await asyncio.gather(
-            _call_llm(advocate_model, advocate_prompt, self.state.query, self.state),
-            _call_llm(challenger_model, challenger_prompt, self.state.query, self.state),
+            _call_llm(advocate_model, advocate_prompt, self.state.query, self.state, step="advocate_round1"),
+            _call_llm(challenger_model, challenger_prompt, self.state.query, self.state, step="challenger_round1"),
         )
 
         self.state.advocate_research = json.dumps(advocate_out)
@@ -74,14 +77,12 @@ class DebateOrchestrator:
         return advocate_out, challenger_out
 
     async def run_cross_examination(self) -> tuple[dict, dict]:
-        advocate_model = get_model_for_role(AgentRole.ADVOCATE, self.state.model if self.state.model != "groq/llama-3.3-70b-versatile" else None)
-        challenger_model = get_model_for_role(AgentRole.CHALLENGER, self.state.model if self.state.model != "groq/llama-3.3-70b-versatile" else None)
+        advocate_model = get_model_for_step("advocate_round2", self.state.model)
+        challenger_model = get_model_for_step("challenger_round2", self.state.model)
 
-        # Challenger attacks advocate's Round 1 output specifically
         challenger_prompt = _load_prompt("challenger").replace(
             "{advocate_output}", self.state.advocate_research
         )
-        # Advocate reinforces its weakest points after seeing challenger's research
         advocate_rebuttal_prompt = (
             _load_prompt("advocate")
             + f"\n\nThe Challenger has raised these concerns:\n{self.state.challenger_research}\n\n"
@@ -89,8 +90,8 @@ class DebateOrchestrator:
         )
 
         adv_rebuttal, chall_rebuttal = await asyncio.gather(
-            _call_llm(advocate_model, advocate_rebuttal_prompt, self.state.query, self.state),
-            _call_llm(challenger_model, challenger_prompt, self.state.query, self.state),
+            _call_llm(advocate_model, advocate_rebuttal_prompt, self.state.query, self.state, step="advocate_round2"),
+            _call_llm(challenger_model, challenger_prompt, self.state.query, self.state, step="challenger_round2"),
         )
 
         self.state.advocate_rebuttal = json.dumps(adv_rebuttal)
@@ -99,7 +100,7 @@ class DebateOrchestrator:
         return adv_rebuttal, chall_rebuttal
 
     async def run_arbitrator(self) -> dict:
-        model = get_model_for_role(AgentRole.ARBITRATOR, self.state.model if self.state.model != "groq/llama-3.3-70b-versatile" else None)
+        model = get_model_for_step("arbitrator", self.state.model)
 
         system_prompt = (
             _load_prompt("arbitrator")
@@ -115,7 +116,7 @@ class DebateOrchestrator:
             f"Challenger Rebuttal: {self.state.challenger_rebuttal}"
         )
 
-        verdict = await _call_llm(model, system_prompt, full_transcript, self.state)
+        verdict = await _call_llm(model, system_prompt, full_transcript, self.state, step="arbitrator")
         self.state.verdict = verdict
         self.state.completed_at = time.time()
         self.state.round = 3

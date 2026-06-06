@@ -15,6 +15,7 @@ class DebateState:
     challenger_rebuttal: str = ""
 
     verdict: dict = field(default_factory=dict)
+    step_costs: dict = field(default_factory=dict)
 
     round: int = 0
     total_input_tokens: int = 0
