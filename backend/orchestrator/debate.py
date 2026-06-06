@@ -11,6 +11,7 @@ import litellm
 from backend.config import settings
 from backend.orchestrator.router import get_model_for_step, get_fallback_models
 from backend.orchestrator.state import DebateState
+from backend.orchestrator.agent_loop import run_agent_with_tools, parse_json_response
 
 os.environ["GROQ_API_KEY"] = settings.groq_api_key or ""
 
@@ -89,16 +90,26 @@ class DebateOrchestrator:
         self.state = state
 
     async def run_round_one(self) -> tuple[dict, dict]:
+        """
+        Run the first research round for both Advocate and Challenger in parallel.
+
+        Both agents use the tool-calling loop so they can autonomously call
+        MCA intelligence, company health, compensation, and other tools before
+        producing their initial research output.
+        """
         advocate_model = get_model_for_step("advocate_round1", self.state.model)
         challenger_model = get_model_for_step("challenger_round1", self.state.model)
 
         advocate_prompt = _load_prompt("advocate")
         challenger_prompt = _load_prompt("challenger").replace("{advocate_output}", "")
 
-        advocate_out, challenger_out = await asyncio.gather(
-            _call_llm(advocate_model, advocate_prompt, self.state.query, self.state, step="advocate_round1"),
-            _call_llm(challenger_model, challenger_prompt, self.state.query, self.state, step="challenger_round1"),
+        advocate_raw, challenger_raw = await asyncio.gather(
+            run_agent_with_tools(advocate_prompt, self.state.query, advocate_model, "Advocate"),
+            run_agent_with_tools(challenger_prompt, self.state.query, challenger_model, "Challenger"),
         )
+
+        advocate_out = parse_json_response(advocate_raw)
+        challenger_out = parse_json_response(challenger_raw)
 
         self.state.advocate_research = json.dumps(advocate_out)
         self.state.challenger_research = json.dumps(challenger_out)
@@ -106,6 +117,13 @@ class DebateOrchestrator:
         return advocate_out, challenger_out
 
     async def run_cross_examination(self) -> tuple[dict, dict]:
+        """
+        Run the rebuttal round with tool-calling enabled for both agents.
+
+        Advocate sees the Challenger's concerns and can call tools to
+        reinforce weak points. Challenger sees the Advocate's full case
+        and calls tools to find contradicting evidence.
+        """
         advocate_model = get_model_for_step("advocate_round2", self.state.model)
         challenger_model = get_model_for_step("challenger_round2", self.state.model)
 
@@ -118,10 +136,13 @@ class DebateOrchestrator:
             "Now reinforce your weakest points and address their strongest counter-arguments."
         )
 
-        adv_rebuttal, chall_rebuttal = await asyncio.gather(
-            _call_llm(advocate_model, advocate_rebuttal_prompt, self.state.query, self.state, step="advocate_round2"),
-            _call_llm(challenger_model, challenger_prompt, self.state.query, self.state, step="challenger_round2"),
+        adv_raw, chall_raw = await asyncio.gather(
+            run_agent_with_tools(advocate_rebuttal_prompt, self.state.query, advocate_model, "Advocate-Rebuttal"),
+            run_agent_with_tools(challenger_prompt, self.state.query, challenger_model, "Challenger-Rebuttal"),
         )
+
+        adv_rebuttal = parse_json_response(adv_raw)
+        chall_rebuttal = parse_json_response(chall_raw)
 
         self.state.advocate_rebuttal = json.dumps(adv_rebuttal)
         self.state.challenger_rebuttal = json.dumps(chall_rebuttal)

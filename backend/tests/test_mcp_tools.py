@@ -179,3 +179,32 @@ def test_positive_signal_debt_free():
     }
     positive_signals = analyze_positive_signals(company_data_debt_free)
     assert any("debt-free" in signal for signal in positive_signals)
+
+
+# Test 16: tool executor routes candor_search_company_health to correct function
+@pytest.mark.asyncio
+async def test_tool_executor_routes_company_health():
+    from backend.orchestrator.tool_executor import execute_tool_call
+
+    mock_result = {"company": "TestCo", "health_signals": []}
+
+    with patch(
+        "backend.mcp_server.tools.company_health.search_company_health",
+        new_callable=AsyncMock,
+        return_value=mock_result,
+    ):
+        result = await execute_tool_call(
+            "candor_search_company_health",
+            {"company_name": "TestCo"},
+        )
+    assert result["company"] == "TestCo"
+
+
+# Test 17: tool executor returns structured error dict for unknown tool name
+@pytest.mark.asyncio
+async def test_tool_executor_handles_unknown_tool():
+    from backend.orchestrator.tool_executor import execute_tool_call
+
+    result = await execute_tool_call("nonexistent_tool", {})
+    assert "error" in result
+    assert "nonexistent_tool" in result["error"]
