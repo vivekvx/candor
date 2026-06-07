@@ -1,0 +1,29 @@
+{
+  "cached_at": 1780757082.3414762,
+  "company_name": "Zepto",
+  "data": {
+    "company": "Zepto",
+    "source": "ZaubaCorp (MCA filings) + AmbitionBox",
+    "registration": {
+      "status": "Active",
+      "incorporation_date": "2017-07-18"
+    },
+    "directors": [],
+    "charge_documents": [],
+    "compliance_signals": [],
+    "salary_benchmarks": {
+      "source": "AmbitionBox employee reports",
+      "roles": [],
+      "data_found": false,
+      "error": "Could not fetch salary data \u2014 using Tavily search as fallback"
+    },
+    "red_flags": [
+      "Fewer than 2 directors on record \u2014 potential governance concern"
+    ],
+    "positive_signals": [
+      "Company is active and compliant per MCA registry",
+      "No charge documents filed \u2014 company operates debt-free"
+    ],
+    "data_quality": "full"
+  }
+}
