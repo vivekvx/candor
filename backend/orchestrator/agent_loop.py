@@ -32,8 +32,10 @@ MAX_TOOL_CALLS_PER_AGENT = 2
 FALLBACK_MODEL_CHAIN = [
     "groq/llama-3.3-70b-versatile",
     "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-    "openrouter/deepseek/deepseek-r1:free",
+    "openrouter/deepseek/deepseek-r1-zero:free",
     "openrouter/mistralai/mistral-7b-instruct:free",
+    "openrouter/google/gemma-3-27b-it:free",
+    "openrouter/qwen/qwen3-14b:free",
     "gemini/gemini-2.0-flash",
     "anthropic/claude-haiku-3-5",
 ]

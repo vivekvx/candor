@@ -81,7 +81,7 @@ ALL_MODELS = [
         "note": "Free via OpenRouter — separate token pool from Groq",
     },
     {
-        "id": "openrouter/deepseek/deepseek-r1:free",
+        "id": "openrouter/deepseek/deepseek-r1-zero:free",
         "name": "DeepSeek R1 (OpenRouter)",
         "provider": "OpenRouter",
         "key_field": "openrouter_api_key",
@@ -165,7 +165,7 @@ LOAD_BALANCED_STEP_MODELS = {
     "advocate_round1": "groq/llama-3.3-70b-versatile",
     "challenger_round1": "openrouter/meta-llama/llama-3.3-70b-instruct:free",
     "advocate_round2": "groq/llama-3.3-70b-versatile",
-    "challenger_round2": "openrouter/deepseek/deepseek-r1:free",
+    "challenger_round2": "openrouter/deepseek/deepseek-r1-zero:free",
     "arbitrator": "groq/llama-3.3-70b-versatile",
 }
 
