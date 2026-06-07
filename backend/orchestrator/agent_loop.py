@@ -304,34 +304,45 @@ def _has_tool_calls(assistant_message: Any) -> bool:
 
 
 # Some models (notably Llama variants via Groq/OpenRouter) emit tool calls
-# as plain text instead of structured tool_calls — either
-# <function=name>{"arg": "val"}</function> or <function=name [{"arg": "val"}]</function>
-# (no closing '>' on the opening tag). _has_tool_calls misses both, so without
-# this the malformed text becomes the agent's "final answer" verbatim.
-_TEXT_FUNCTION_CALL_PATTERN = re.compile(
-    r"<function=([a-zA-Z0-9_]+)\s*>?\s*(.*?)\s*</function>",
-    re.DOTALL,
-)
+# as plain text instead of structured tool_calls, in any of several shapes
+# observed live:
+#   <function=name>{"arg": "val"}</function>
+#   <function=name [{"arg": "val"}]</function>
+#   <function=name({"arg": "val"})></function>
+#   <function>name({"arg": "val"})</function>
+# _has_tool_calls misses all of these, so without recovery the malformed
+# text becomes the agent's "final answer" verbatim. Rather than chase every
+# delimiter combination with one regex, grab the whole <function...></function>
+# block, then pull the name (first identifier after the tag) and the first
+# JSON object/array out of it independently — robust to whatever wrapper
+# punctuation — '>', '(', '[' — the model used around them.
+_FUNCTION_BLOCK_PATTERN = re.compile(r"<function.*?</function>", re.DOTALL)
+_FUNCTION_NAME_PATTERN = re.compile(r"<function[=>]?\s*([a-zA-Z_][a-zA-Z0-9_]*)")
+_JSON_BLOB_PATTERN = re.compile(r"(\{.*\}|\[.*\])", re.DOTALL)
 
 
 def _extract_text_function_calls(content: str) -> list[dict]:
     """
     Best-effort recovery of tool calls a model wrote as plain text.
 
-    Returns a list of {"name": str, "arguments": dict}. Entries whose
-    argument blob isn't valid JSON, or isn't an object (or single-element
-    array of one), are silently skipped — this is recovery from a malformed
-    response, not validation, so we never raise here.
+    Returns a list of {"name": str, "arguments": dict}. Blocks missing a
+    recognizable name or a JSON object/array, or whose blob doesn't parse
+    as JSON or resolve to a dict (directly or as the first element of a
+    single-item array), are silently skipped — this is recovery from a
+    malformed response, not validation, so we never raise here.
     """
     calls: list[dict] = []
     if not content:
         return calls
 
-    for match in _TEXT_FUNCTION_CALL_PATTERN.finditer(content):
-        name = match.group(1)
-        raw_arguments = match.group(2).strip()
+    for block in _FUNCTION_BLOCK_PATTERN.findall(content):
+        name_match = _FUNCTION_NAME_PATTERN.search(block)
+        json_match = _JSON_BLOB_PATTERN.search(block)
+        if not name_match or not json_match:
+            continue
+
         try:
-            parsed = json.loads(raw_arguments)
+            parsed = json.loads(json_match.group(1))
         except json.JSONDecodeError:
             continue
 
@@ -340,7 +351,7 @@ def _extract_text_function_calls(content: str) -> list[dict]:
         if not isinstance(parsed, dict):
             continue
 
-        calls.append({"name": name, "arguments": parsed})
+        calls.append({"name": name_match.group(1), "arguments": parsed})
 
     return calls
 
