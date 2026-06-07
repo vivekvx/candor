@@ -273,7 +273,7 @@ async def run_agent_with_tools(
         agent_name,
         MAX_TOOL_CALLS_PER_AGENT,
     )
-    return await _get_final_answer_without_tools(model, messages)
+    return await _get_final_answer_without_tools(model, messages, agent_name)
 
 
 def _build_initial_messages(system_prompt: str, user_message: str) -> list[dict]:
@@ -404,13 +404,19 @@ async def _execute_all_tool_calls(
 
 
 async def _get_final_answer_without_tools(
-    model: str, messages: list[dict]
+    model: str, messages: list[dict], agent_name: str = ""
 ) -> str:
     """
     Force a final answer after hitting the tool call limit.
 
     Uses the fallback chain here too — hitting the tool limit does not mean
     we give up on getting an answer from the best available provider.
+
+    Some models keep emitting text-formatted <function=...> calls even with
+    no tool schema attached and after being told to stop (seen live: the
+    forced-final-answer call returned raw <function=name(...)></function>
+    text verbatim). One bounded recovery pass — execute what we can parse,
+    ask once more — catches this without risking an infinite loop.
     """
     try:
         response, model_used = await call_llm_with_fallback(
@@ -418,7 +424,36 @@ async def _get_final_answer_without_tools(
             use_tools=False,
             preferred_model=model,
         )
-        return response.choices[0].message.content or ""
+        content = response.choices[0].message.content or ""
+
+        text_calls = _extract_text_function_calls(content)
+        if text_calls:
+            logger.info(
+                "%s forced-final-answer still emitted %d text-formatted tool call(s) "
+                "— running one bounded recovery pass",
+                agent_name,
+                len(text_calls),
+            )
+            tool_results = await _execute_text_function_calls(text_calls, agent_name)
+            recovery_messages = messages + [
+                {"role": "assistant", "content": content},
+                {
+                    "role": "user",
+                    "content": (
+                        "Tool results:\n" + json.dumps(tool_results) +
+                        "\n\nDo not call any more tools or write <function=...> tags. "
+                        "Respond now with ONLY your final answer as a single valid JSON object."
+                    ),
+                },
+            ]
+            response, _ = await call_llm_with_fallback(
+                messages=recovery_messages,
+                use_tools=False,
+                preferred_model=model,
+            )
+            return response.choices[0].message.content or ""
+
+        return content
     except RuntimeError as error:
         logger.error("Final answer failed — all providers exhausted: %s", error)
         return json.dumps({"error": str(error)})
