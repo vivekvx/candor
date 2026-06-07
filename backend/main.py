@@ -53,12 +53,12 @@ async def startup_event():
     if settings.openrouter_api_key:
         os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
 
-    # Wire Langfuse observability into every LiteLLM call
+    # Langfuse — set credentials as env vars so the SDK can pick them up.
+    # Not wired as a litellm string callback: the installed langfuse version
+    # lacks the `version` attribute litellm's integration expects, which
+    # raised "module 'langfuse' has no attribute 'version'" on Railway.
     if settings.langfuse_public_key and settings.langfuse_secret_key:
         os.environ["LANGFUSE_PUBLIC_KEY"] = settings.langfuse_public_key
         os.environ["LANGFUSE_SECRET_KEY"] = settings.langfuse_secret_key
         os.environ["LANGFUSE_HOST"] = settings.langfuse_host
-        import litellm
-        litellm.success_callback = ["langfuse"]
-        litellm.failure_callback = ["langfuse"]
-        logger.info("Langfuse observability enabled")
+        logger.info("Langfuse configured — dashboard available")
