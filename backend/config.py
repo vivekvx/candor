@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
+    openrouter_api_key: str = ""
     tavily_api_key: str = ""
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""

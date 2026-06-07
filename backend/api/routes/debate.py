@@ -120,6 +120,25 @@ async def get_models():
     return {"models": get_available_models()}
 
 
+@router.get("/provider-status")
+async def provider_status():
+    """
+    Return current health status of every provider in the fallback chain.
+
+    Useful for debugging rate limit issues — shows which providers the
+    health tracker has recently marked as rate limited and is skipping.
+    """
+    from orchestrator.provider_health import is_provider_healthy
+    from orchestrator.agent_loop import FALLBACK_MODEL_CHAIN
+
+    return {
+        "providers": [
+            {"model": model, "healthy": is_provider_healthy(model)}
+            for model in FALLBACK_MODEL_CHAIN
+        ]
+    }
+
+
 @router.get("/cost-analysis")
 async def cost_analysis():
     return {

@@ -71,6 +71,24 @@ ALL_MODELS = [
         "speed": "fast",
         "note": "Latest Gemini Flash",
     },
+    {
+        "id": "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+        "name": "Llama 3.3 70B (OpenRouter)",
+        "provider": "OpenRouter",
+        "key_field": "openrouter_api_key",
+        "free": True,
+        "speed": "fast",
+        "note": "Free via OpenRouter — separate token pool from Groq",
+    },
+    {
+        "id": "openrouter/deepseek/deepseek-r1:free",
+        "name": "DeepSeek R1 (OpenRouter)",
+        "provider": "OpenRouter",
+        "key_field": "openrouter_api_key",
+        "free": True,
+        "speed": "medium",
+        "note": "Free reasoning model via OpenRouter",
+    },
 ]
 
 
@@ -137,6 +155,33 @@ ROLE_TIER_MAP = {
     "challenger_round2": ModelTier.QUALITY,
     "arbitrator": ModelTier.FAST,
 }
+
+
+# Spreads token usage across two providers simultaneously: Advocate draws
+# from Groq's pool, Challenger draws from OpenRouter's separate pool.
+# Both run comparable Llama 3.3 70B models, so quality stays consistent
+# while effective free-tier capacity roughly doubles.
+LOAD_BALANCED_STEP_MODELS = {
+    "advocate_round1": "groq/llama-3.3-70b-versatile",
+    "challenger_round1": "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+    "advocate_round2": "groq/llama-3.3-70b-versatile",
+    "challenger_round2": "openrouter/deepseek/deepseek-r1:free",
+    "arbitrator": "groq/llama-3.3-70b-versatile",
+}
+
+
+def get_load_balanced_model(step: str, override_model: Optional[str] = None) -> str:
+    """
+    Return a load-balanced model assignment for a debate step.
+
+    Spreads token usage across Groq and OpenRouter so the two providers'
+    rate-limit pools are consumed in parallel rather than serially.
+    If the user explicitly selected a non-default model, that choice is
+    honored for every step instead.
+    """
+    if override_model and override_model != "groq/llama-3.3-70b-versatile":
+        return override_model
+    return LOAD_BALANCED_STEP_MODELS.get(step, "groq/llama-3.3-70b-versatile")
 
 
 def get_model_for_step(step: str, override_model: Optional[str] = None) -> str:

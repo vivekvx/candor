@@ -9,7 +9,7 @@ from typing import Any
 import litellm
 
 from config import settings
-from orchestrator.router import get_model_for_step, get_fallback_models
+from orchestrator.router import get_load_balanced_model, get_fallback_models
 from orchestrator.state import DebateState
 from orchestrator.agent_loop import run_agent_with_tools, parse_json_response
 
@@ -97,8 +97,8 @@ class DebateOrchestrator:
         MCA intelligence, company health, compensation, and other tools before
         producing their initial research output.
         """
-        advocate_model = get_model_for_step("advocate_round1", self.state.model)
-        challenger_model = get_model_for_step("challenger_round1", self.state.model)
+        advocate_model = get_load_balanced_model("advocate_round1", self.state.model)
+        challenger_model = get_load_balanced_model("challenger_round1", self.state.model)
 
         advocate_prompt = _load_prompt("advocate")
         challenger_prompt = _load_prompt("challenger").replace("{advocate_output}", "")
@@ -124,8 +124,8 @@ class DebateOrchestrator:
         reinforce weak points. Challenger sees the Advocate's full case
         and calls tools to find contradicting evidence.
         """
-        advocate_model = get_model_for_step("advocate_round2", self.state.model)
-        challenger_model = get_model_for_step("challenger_round2", self.state.model)
+        advocate_model = get_load_balanced_model("advocate_round2", self.state.model)
+        challenger_model = get_load_balanced_model("challenger_round2", self.state.model)
 
         challenger_prompt = _load_prompt("challenger").replace(
             "{advocate_output}", self.state.advocate_research
@@ -150,7 +150,7 @@ class DebateOrchestrator:
         return adv_rebuttal, chall_rebuttal
 
     async def run_arbitrator(self) -> dict:
-        model = get_model_for_step("arbitrator", self.state.model)
+        model = get_load_balanced_model("arbitrator", self.state.model)
 
         profile_context = ""
         if self.state.user_profile:

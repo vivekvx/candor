@@ -47,3 +47,5 @@ async def startup_event():
         os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
     if settings.anthropic_api_key:
         os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+    if settings.openrouter_api_key:
+        os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key

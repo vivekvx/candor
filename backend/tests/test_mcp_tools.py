@@ -46,7 +46,7 @@ def test_sanitizer_passes_clean_content():
 # Test 3: company_health returns expected JSON shape
 @pytest.mark.asyncio
 async def test_company_health_shape():
-    with patch("backend.mcp_server.tools.company_health.tavily_search", new_callable=AsyncMock) as mock_search:
+    with patch("mcp_server.tools.company_health.tavily_search", new_callable=AsyncMock) as mock_search:
         mock_search.return_value = MOCK_RESULTS
         result = await search_company_health(CompanyHealthInput(company_name="Zepto"))
     assert "company" in result
@@ -62,7 +62,7 @@ async def test_company_health_shape():
 # Test 4: compensation returns market_range_lpa with low/median/high
 @pytest.mark.asyncio
 async def test_compensation_market_range():
-    with patch("backend.mcp_server.tools.compensation.tavily_search", new_callable=AsyncMock) as mock_search:
+    with patch("mcp_server.tools.compensation.tavily_search", new_callable=AsyncMock) as mock_search:
         mock_search.return_value = MOCK_COMP_RESULTS
         result = await benchmark_compensation(
             CompensationInput(role="Senior Backend Engineer", company_name="Acme", years_experience=5)
@@ -77,7 +77,7 @@ async def test_compensation_market_range():
 # Test 5: founder_signals returns credibility_signals list
 @pytest.mark.asyncio
 async def test_founder_signals_credibility():
-    with patch("backend.mcp_server.tools.founder_signals.tavily_search", new_callable=AsyncMock) as mock_search:
+    with patch("mcp_server.tools.founder_signals.tavily_search", new_callable=AsyncMock) as mock_search:
         mock_search.return_value = MOCK_FOUNDER_RESULTS
         result = await get_founder_signals(FounderSignalsInput(company_name="Acme", founder_name="John Doe"))
     assert "credibility_signals" in result
@@ -88,7 +88,7 @@ async def test_founder_signals_credibility():
 # Test 6: market_timing returns market_direction as valid enum value
 @pytest.mark.asyncio
 async def test_market_timing_direction():
-    with patch("backend.mcp_server.tools.market_timing.tavily_search", new_callable=AsyncMock) as mock_search:
+    with patch("mcp_server.tools.market_timing.tavily_search", new_callable=AsyncMock) as mock_search:
         mock_search.return_value = MOCK_MARKET_RESULTS
         result = await get_market_timing(MarketTimingInput(company_name="Zepto", industry="quick commerce"))
     assert "market_direction" in result
@@ -189,7 +189,7 @@ async def test_tool_executor_routes_company_health():
     mock_result = {"company": "TestCo", "health_signals": []}
 
     with patch(
-        "backend.mcp_server.tools.company_health.search_company_health",
+        "mcp_server.tools.company_health.search_company_health",
         new_callable=AsyncMock,
         return_value=mock_result,
     ):
@@ -208,3 +208,33 @@ async def test_tool_executor_handles_unknown_tool():
     result = await execute_tool_call("nonexistent_tool", {})
     assert "error" in result
     assert "nonexistent_tool" in result["error"]
+
+
+# Test 18: health tracker marks a provider unhealthy after a rate limit
+def test_health_tracker_marks_rate_limited():
+    from orchestrator.provider_health import (
+        mark_provider_rate_limited, is_provider_healthy
+    )
+    mark_provider_rate_limited("groq/llama-3.3-70b-versatile")
+    assert not is_provider_healthy("groq/llama-3.3-70b-versatile")
+
+
+# Test 19: provider prefix extraction handles single and multi-segment ids
+def test_extract_provider_prefix():
+    from orchestrator.provider_health import extract_provider_prefix
+    assert extract_provider_prefix("groq/llama-3.3-70b") == "groq"
+    assert extract_provider_prefix("openrouter/deepseek/r1") == "openrouter"
+
+
+# Test 20: load-balanced assignment routes Advocate through Groq
+def test_load_balanced_advocate_uses_groq():
+    from orchestrator.router import get_load_balanced_model
+    model = get_load_balanced_model("advocate_round1")
+    assert "groq" in model
+
+
+# Test 21: load-balanced assignment routes Challenger through OpenRouter
+def test_load_balanced_challenger_uses_openrouter():
+    from orchestrator.router import get_load_balanced_model
+    model = get_load_balanced_model("challenger_round1")
+    assert "openrouter" in model

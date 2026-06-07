@@ -15,6 +15,10 @@ import litellm
 
 from orchestrator.tool_schemas import DEBATE_TOOL_SCHEMAS
 from orchestrator.tool_executor import execute_tool_call, parse_tool_arguments
+from orchestrator.provider_health import (
+    mark_provider_rate_limited,
+    get_healthy_fallback_chain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +26,14 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_CALLS_PER_AGENT = 2
 
 # Provider fallback chain — tried in order when the preferred model rate-limits.
-# Groq is first (free, fast), then Gemini (free tier), then Anthropic (paid, best quality).
+# Groq first (free, fast, 100K TPD), then OpenRouter free models (separate
+# token pool — doubles effective free-tier capacity), then paid providers
+# as a last resort if their keys are configured.
 FALLBACK_MODEL_CHAIN = [
     "groq/llama-3.3-70b-versatile",
+    "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+    "openrouter/deepseek/deepseek-r1:free",
+    "openrouter/mistralai/mistral-7b-instruct:free",
     "gemini/gemini-2.0-flash",
     "anthropic/claude-haiku-3-5",
 ]
@@ -110,9 +119,11 @@ async def call_llm_with_fallback(
     """
     Call LiteLLM with automatic provider fallback on rate-limit errors.
 
-    Tries the preferred model first. On a rate-limit or quota error, logs
-    the failure and tries the next provider in the priority list. Fallback
-    is silent to the end user — they only see an error if all providers fail.
+    Tries the preferred model first, deprioritizing providers the health
+    tracker has recently marked as rate limited. On a rate-limit or quota
+    error, marks that provider unhealthy, logs the failure, and tries the
+    next provider in the priority list. Fallback is silent to the end
+    user — they only see an error if all providers fail.
 
     Args:
         messages: Conversation history to send
@@ -125,7 +136,9 @@ async def call_llm_with_fallback(
     Raises:
         RuntimeError if every provider in the priority list is exhausted
     """
-    models_to_try = build_model_priority_list(preferred_model)
+    models_to_try = get_healthy_fallback_chain(
+        preferred_model, build_model_priority_list(preferred_model)
+    )
     last_error = None
 
     for model in models_to_try:
@@ -139,8 +152,9 @@ async def call_llm_with_fallback(
 
         except Exception as error:
             if is_rate_limit_error(error):
+                mark_provider_rate_limited(model)
                 logger.warning(
-                    "Model '%s' rate limited — trying next provider", model
+                    "Model '%s' rate limited — trying next healthy provider", model
                 )
                 last_error = error
                 continue
