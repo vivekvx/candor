@@ -54,6 +54,17 @@ export default function QueryInput({ onStart }) {
   const { getHistory, clearHistory } = useDebateHistory()
   const [history, setHistory] = useState(() => getHistory().slice(0, 5))
 
+  // Once enough debate history exists, surface recent queries as chips
+  // alongside the static examples so the landing page feels personalized
+  const recentChips = history.slice(0, 2).map(h => ({
+    label: h.query.length > 45 ? h.query.slice(0, 45) + '...' : h.query,
+    query: h.query,
+    isRecent: true,
+  }))
+  const displayChips = history.length >= 3
+    ? [...recentChips, ...CHIPS.slice(0, 4).map(c => ({ label: c, query: c, isRecent: false }))]
+    : CHIPS.map(c => ({ label: c, query: c, isRecent: false }))
+
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 50)
     return () => clearTimeout(t)
@@ -305,14 +316,17 @@ export default function QueryInput({ onStart }) {
               flexWrap: 'wrap',
               gap: '8px',
             }}>
-              {CHIPS.map((chip, i) => (
+              {displayChips.map((chip, i) => (
                 <button
-                  key={chip}
+                  key={`${chip.isRecent ? 'recent' : 'static'}-${chip.label}`}
                   type="button"
-                  onClick={() => setQuery(chip)}
+                  onClick={() => setQuery(chip.query)}
                   onMouseEnter={() => setHoveredChip(i)}
                   onMouseLeave={() => setHoveredChip(null)}
                   style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
                     background: 'transparent',
                     border: `1px solid ${hoveredChip === i ? 'var(--border-bright)' : 'var(--border)'}`,
                     borderRadius: '100px',
@@ -327,7 +341,21 @@ export default function QueryInput({ onStart }) {
                     animationDelay: `${300 + i * 80}ms`,
                   }}
                 >
-                  {chip}
+                  {chip.isRecent && (
+                    <span style={{
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      color: 'var(--accent)',
+                      border: '1px solid var(--accent)',
+                      borderRadius: '100px',
+                      padding: '1px 6px',
+                    }}>
+                      Recent
+                    </span>
+                  )}
+                  {chip.label}
                 </button>
               ))}
             </div>

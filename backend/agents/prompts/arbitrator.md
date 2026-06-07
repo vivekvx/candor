@@ -52,3 +52,18 @@ Rules:
 - if equal: verdict must say what would tip it either way
 - if_i_were_you must reference something specific from the debate
 - negotiation_tip must be something you can actually say in an HR call
+
+FINAL ENFORCEMENT RULE:
+Your "verdict" field MUST contain one of these words:
+JOIN, DON'T JOIN, NEGOTIATE, AVOID, or PROCEED.
+
+If your verdict does not contain one of these words,
+rewrite it until it does. A verdict without a clear
+direction is a failed verdict.
+
+Example of FAILED verdict:
+"You should carefully weigh the pros and cons."
+
+Example of PASSING verdict:
+"Don't join. The burn rate signal alone makes this too risky
+at 40 LPA — negotiate to 52 LPA or walk away."

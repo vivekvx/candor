@@ -1,19 +1,22 @@
 """
 MCA company intelligence tool for Candor.
 
-Scrapes real Indian company data from two public sources:
+Fetches real Indian company data from two public sources using plain HTTP:
 - ZaubaCorp: wraps government MCA filings (charges, directors, status)
 - AmbitionBox: employee-reported salary benchmarks
 
 This gives Candor access to legally-filed debt signals and actual
-compensation data that Tavily web search cannot surface.
+compensation data that Tavily web search cannot surface. Uses httpx
+instead of a headless browser — both sites serve server-rendered HTML
+that BeautifulSoup can parse directly, and Playwright/Chromium is too
+heavy to run reliably on Railway.
 """
 
 import logging
 from typing import Optional
 
+import httpx
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
 from pydantic import BaseModel
 
 from mcp_server.tools.cache import (
@@ -32,8 +35,8 @@ ZAUBA_COMPANY_BASE_URL = "https://www.zaubacorp.com"
 # AmbitionBox salary page URL — {company_slug} replaced at runtime
 AMBITIONBOX_SALARY_URL = "https://www.ambitionbox.com/salaries/{company_slug}-salaries"
 
-# Milliseconds to wait for dynamic content to finish rendering
-PAGE_LOAD_TIMEOUT = 15000
+# Seconds to wait for an HTTP response before giving up
+REQUEST_TIMEOUT_SECONDS = 15.0
 
 # How many search result rows to inspect before giving up
 MAX_SEARCH_RESULTS = 3
@@ -45,6 +48,12 @@ USER_AGENT = (
     "Chrome/120.0.0.0 Safari/537.36"
 )
 
+REQUEST_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
 
 class CompanyIntelligenceInput(BaseModel):
     """Input schema for the company intelligence tool."""
@@ -53,13 +62,30 @@ class CompanyIntelligenceInput(BaseModel):
     city: Optional[str] = None  # Optional city to narrow search results
 
 
+async def fetch_html(url: str) -> str:
+    """
+    Fetch a page's HTML using httpx with browser-like headers.
+
+    No headless browser needed — both ZaubaCorp and AmbitionBox serve
+    server-rendered HTML that is fully present in the initial response.
+    """
+    async with httpx.AsyncClient(
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        follow_redirects=True,
+        headers=REQUEST_HEADERS,
+    ) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.text
+
+
 async def get_company_intelligence(input_data: CompanyIntelligenceInput) -> dict:
     """
     Fetch real Indian company intelligence from MCA filings and AmbitionBox.
 
-    Checks the 24-hour disk cache first. On cache miss, launches a headless
-    Chromium browser, scrapes ZaubaCorp for government filing data, and
-    scrapes AmbitionBox for salary benchmarks. Saves result to cache.
+    Checks the 24-hour disk cache first. On cache miss, fetches ZaubaCorp
+    HTML for government filing data and AmbitionBox HTML for salary
+    benchmarks via plain HTTP requests. Saves the result to cache.
 
     Returns structured intelligence including registration status, directors,
     charge documents (debt signals), compliance signals, salary benchmarks,
@@ -72,45 +98,35 @@ async def get_company_intelligence(input_data: CompanyIntelligenceInput) -> dict
 
     result = _build_empty_result(input_data.company_name)
 
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent=USER_AGENT)
+    try:
+        company_url = await search_zauba_corp(input_data.company_name, input_data.city)
 
-        try:
-            company_url = await search_zauba_corp(
-                context, input_data.company_name, input_data.city
+        if company_url:
+            company_data = await extract_company_details(company_url)
+            result["registration"] = company_data.get("registration", {})
+            result["directors"] = company_data.get("directors", [])
+            result["charge_documents"] = company_data.get("charges", [])
+            result["compliance_signals"] = company_data.get("compliance", [])
+            result["red_flags"] = analyze_red_flags(company_data)
+            result["positive_signals"] = analyze_positive_signals(company_data)
+        else:
+            result["data_quality"] = "not_found"
+            result["red_flags"].append(
+                "Company not found in MCA registry — "
+                "verify company name and registration status"
             )
 
-            if company_url:
-                company_data = await extract_company_details(context, company_url)
-                result["registration"] = company_data.get("registration", {})
-                result["directors"] = company_data.get("directors", [])
-                result["charge_documents"] = company_data.get("charges", [])
-                result["compliance_signals"] = company_data.get("compliance", [])
-                result["red_flags"] = analyze_red_flags(company_data)
-                result["positive_signals"] = analyze_positive_signals(company_data)
-            else:
-                result["data_quality"] = "not_found"
-                result["red_flags"].append(
-                    "Company not found in MCA registry — "
-                    "verify company name and registration status"
-                )
+        salary_data = await scrape_ambitionbox_salaries(input_data.company_name)
+        result["salary_benchmarks"] = salary_data
 
-            salary_data = await scrape_ambitionbox_salaries(
-                context, input_data.company_name
-            )
-            result["salary_benchmarks"] = salary_data
-
-        except Exception as error:
-            logger.error(
-                "Company intelligence scraping failed for '%s': %s",
-                input_data.company_name,
-                error,
-            )
-            result["data_quality"] = "partial"
-            result["red_flags"].append(f"Could not fetch complete data: {error}")
-        finally:
-            await browser.close()
+    except Exception as error:
+        logger.error(
+            "Company intelligence fetch failed for '%s': %s",
+            input_data.company_name,
+            error,
+        )
+        result["data_quality"] = "partial"
+        result["red_flags"].append(f"Could not fetch complete data: {error}")
 
     save_intelligence_to_cache(input_data.company_name, result)
     return result
@@ -118,10 +134,10 @@ async def get_company_intelligence(input_data: CompanyIntelligenceInput) -> dict
 
 def _build_empty_result(company_name: str) -> dict:
     """
-    Construct the default result skeleton used before scraping begins.
+    Construct the default result skeleton used before fetching begins.
 
     Centralised here so the shape is consistent whether data is found
-    or the scraper fails partway through.
+    or the fetch fails partway through.
     """
     return {
         "company": company_name,
@@ -137,9 +153,7 @@ def _build_empty_result(company_name: str) -> dict:
     }
 
 
-async def search_zauba_corp(
-    context, company_name: str, city: Optional[str]
-) -> Optional[str]:
+async def search_zauba_corp(company_name: str, city: Optional[str]) -> Optional[str]:
     """
     Search ZaubaCorp for a company by name.
 
@@ -147,25 +161,24 @@ async def search_zauba_corp(
     preferring active companies over struck-off ones. Returns None if
     no match is found in the first MAX_SEARCH_RESULTS rows.
     """
-    page = await context.new_page()
-
     try:
         search_name = company_name.replace(" ", "-")
         search_url = ZAUBA_SEARCH_URL.format(company_name=search_name)
 
-        await page.goto(search_url, timeout=PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
+        html = await fetch_html(search_url)
+        soup = BeautifulSoup(html, "html.parser")
 
-        result_rows = await page.query_selector_all("table tbody tr")
+        result_rows = soup.select("table tbody tr")
         best_match_url = None
 
         for row in result_rows[:MAX_SEARCH_RESULTS]:
-            row_text = await row.inner_text()
-            link_element = await row.query_selector("a")
+            row_text = row.get_text()
+            link_element = row.select_one("a")
 
             if not link_element:
                 continue
 
-            href = await link_element.get_attribute("href")
+            href = link_element.get("href", "")
             if not href:
                 continue
 
@@ -189,11 +202,9 @@ async def search_zauba_corp(
     except Exception as error:
         logger.warning("ZaubaCorp search failed for '%s': %s", company_name, error)
         return None
-    finally:
-        await page.close()
 
 
-async def extract_company_details(context, company_url: str) -> dict:
+async def extract_company_details(company_url: str) -> dict:
     """
     Extract registration, directors, charges, and compliance from a ZaubaCorp page.
 
@@ -201,15 +212,11 @@ async def extract_company_details(context, company_url: str) -> dict:
     filed a formal loan/debt instrument with the MCA government registry.
     Multiple unsatisfied charges indicate significant debt burden.
     """
-    page = await context.new_page()
     details = {"registration": {}, "directors": [], "charges": [], "compliance": []}
 
     try:
-        # domcontentloaded avoids hanging on analytics/tracking requests
-        await page.goto(company_url, timeout=PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
-
-        html_content = await page.content()
-        soup = BeautifulSoup(html_content, "html.parser")
+        html = await fetch_html(company_url)
+        soup = BeautifulSoup(html, "html.parser")
 
         details["registration"] = extract_registration_details(soup)
         details["directors"] = extract_directors(soup)
@@ -218,8 +225,6 @@ async def extract_company_details(context, company_url: str) -> dict:
 
     except Exception as error:
         logger.warning("Failed to extract details from %s: %s", company_url, error)
-    finally:
-        await page.close()
 
     return details
 
@@ -434,9 +439,9 @@ def analyze_positive_signals(company_data: dict) -> list:
     return positive_signals
 
 
-async def scrape_ambitionbox_salaries(context, company_name: str) -> dict:
+async def scrape_ambitionbox_salaries(company_name: str) -> dict:
     """
-    Scrape salary benchmarks from AmbitionBox for the given company.
+    Fetch salary benchmarks from AmbitionBox for the given company.
 
     AmbitionBox salary data comes from self-reports by actual employees,
     making it more reliable for compensation benchmarking than general
@@ -447,23 +452,13 @@ async def scrape_ambitionbox_salaries(context, company_name: str) -> dict:
         "roles": [],
         "data_found": False,
     }
-    page = await context.new_page()
 
     try:
-        # AmbitionBox requires browser-like headers to avoid protocol errors
-        await page.set_extra_http_headers({
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-        })
-
         company_slug = company_name.lower().replace(" ", "-")
         salary_url = AMBITIONBOX_SALARY_URL.format(company_slug=company_slug)
 
-        await page.goto(salary_url, timeout=PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
-
-        html_content = await page.content()
-        soup = BeautifulSoup(html_content, "html.parser")
+        html = await fetch_html(salary_url)
+        soup = BeautifulSoup(html, "html.parser")
 
         # AmbitionBox uses CSS classes containing "salary" on role salary cards
         salary_items = soup.find_all(
@@ -478,11 +473,9 @@ async def scrape_ambitionbox_salaries(context, company_name: str) -> dict:
                 salary_data["data_found"] = True
 
     except Exception as error:
-        logger.warning("AmbitionBox scraping failed for '%s': %s", company_name, error)
+        logger.warning("AmbitionBox fetch failed for '%s': %s", company_name, error)
         salary_data["error"] = (
             "Could not fetch salary data — using Tavily search as fallback"
         )
-    finally:
-        await page.close()
 
     return salary_data

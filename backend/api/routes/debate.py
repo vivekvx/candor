@@ -1,10 +1,12 @@
 import hashlib
 import json
+import logging
+import os
 import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -15,8 +17,22 @@ from mcp_server.tools.sanitizer import INJECTION_PATTERNS
 
 router = APIRouter(prefix="/api", tags=["debate"])
 
-DEBATES_DIR = Path("debate_cache")
-DEBATES_DIR.mkdir(exist_ok=True)
+logger = logging.getLogger(__name__)
+
+# Railway's filesystem resets on every redeploy — a mounted volume survives.
+# RAILWAY_VOLUME_MOUNT_PATH is set when a volume is attached in the dashboard;
+# fall back to a local directory (and warn) when no volume is configured.
+_volume_path = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+if _volume_path:
+    DEBATES_DIR = Path(_volume_path) / "debate_cache"
+else:
+    logger.warning(
+        "RAILWAY_VOLUME_MOUNT_PATH not set — debates stored on local disk "
+        "and will be lost on redeploy. Attach a Railway volume for persistence."
+    )
+    DEBATES_DIR = Path("debate_cache")
+
+DEBATES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class UserProfile(BaseModel):
@@ -111,7 +127,11 @@ async def get_debate(debate_id: str):
     """Retrieve a saved debate by ID."""
     data = load_debate(debate_id)
     if not data:
-        raise HTTPException(status_code=404, detail="Debate not found")
+        return {
+            "error": "Debate not found",
+            "message": "This debate may have expired. Run a new debate and share that link.",
+            "expired": True,
+        }
     return data
 
 

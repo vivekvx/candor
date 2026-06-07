@@ -315,26 +315,41 @@ async def _get_final_answer_without_tools(
 
 def parse_json_response(raw_response: str) -> dict:
     """
-    Parse JSON from an agent's raw string response.
+    Parse JSON from an agent's raw string response robustly.
 
-    Handles the common case where a model wraps its JSON in a markdown
-    code block (```json ... ```). Returns a dict with 'raw_response'
-    as fallback so the debate never crashes on a parse failure.
+    Handles plain JSON, markdown-wrapped JSON (```json ... ``` or ``` ... ```),
+    and JSON embedded within surrounding prose. Never returns raw text that
+    would break the UI — always returns a dict, falling back to a wrapped
+    representation of the raw response when no valid JSON can be found.
     """
     if not raw_response:
-        return {}
+        return {"error": "Empty response from agent"}
 
     cleaned = raw_response.strip()
 
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        # Drop the opening fence (```json) and closing fence (```)
-        cleaned = "\n".join(lines[1:-1])
+    # Strip markdown code fences
+    if "```json" in cleaned:
+        cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0].strip()
+    elif "```" in cleaned:
+        cleaned = cleaned.split("```", 1)[1].split("```", 1)[0].strip()
 
+    # Try direct parse
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        logger.warning(
-            "Failed to parse agent JSON response: %s...", cleaned[:120]
-        )
-        return {"raw_response": raw_response}
+        pass
+
+    # Try locating a JSON object within surrounding text
+    start = cleaned.find("{")
+    end = cleaned.rfind("}") + 1
+    if start != -1 and end > start:
+        try:
+            return json.loads(cleaned[start:end])
+        except json.JSONDecodeError:
+            pass
+
+    # Last resort — wrap the raw response so the UI never breaks
+    logger.warning(
+        "Failed to parse agent JSON response: %s...", raw_response[:120]
+    )
+    return {"raw_response": raw_response}
