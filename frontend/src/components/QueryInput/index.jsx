@@ -218,7 +218,7 @@ export default function QueryInput({ onStart }) {
                   {modelsLoading && <option value="">Loading models...</option>}
                   {!modelsLoading && models && models.map(m => (
                     <option key={m.id} value={m.id}>
-                      {m.name}{m.free ? ' (free)' : ''}
+                      {m.name}{m.free ? ' (free)' : ' · Needs API key'}
                     </option>
                   ))}
                   <option value={CUSTOM_ID}>Custom model…</option>
