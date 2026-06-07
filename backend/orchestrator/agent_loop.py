@@ -19,7 +19,7 @@ from orchestrator.tool_executor import execute_tool_call, parse_tool_arguments
 logger = logging.getLogger(__name__)
 
 # Cap per agent per round — enough for thorough research, prevents runaway cost
-MAX_TOOL_CALLS_PER_AGENT = 5
+MAX_TOOL_CALLS_PER_AGENT = 2
 
 # Provider fallback chain — tried in order when the preferred model rate-limits.
 # Groq is first (free, fast), then Gemini (free tier), then Anthropic (paid, best quality).
