@@ -109,19 +109,20 @@ def get_available_models() -> list[dict]:
     ]
 
 
+# NOTE: anthropic intentionally never selected here — _has_key only checks
+# that ANTHROPIC_API_KEY is *configured* (non-empty, length > 8), not that
+# the account carries credits. This account is configured but uncredited
+# ("Your credit balance is too low"), so picking it first/at-all means every
+# debate step routed here fails immediately. Re-add once it's funded.
 def get_fast_model() -> str:
     if _has_key("groq_api_key"):
         return "groq/llama-3.3-70b-versatile"
     if _has_key("gemini_api_key"):
         return "gemini/gemini-1.5-flash"
-    if _has_key("anthropic_api_key"):
-        return "anthropic/claude-haiku-3-5"
     return "groq/llama-3.3-70b-versatile"
 
 
 def get_quality_model() -> str:
-    if _has_key("anthropic_api_key"):
-        return "anthropic/claude-haiku-3-5"
     if _has_key("gemini_api_key"):
         return "gemini/gemini-2.0-flash"
     if _has_key("groq_api_key"):
