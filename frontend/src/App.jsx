@@ -45,21 +45,37 @@ export default function App() {
         .then(r => r.ok ? r.json() : null)
         .then(data => { if (data) setSharedDebate(data) })
         .catch(() => {})
+    } else if (window.location.pathname === '/debate') {
+      // Landed on /debate with no active debate — bounce back to landing page
+      window.history.replaceState({}, '', '/')
     }
   }, [])
 
+  // Back button on /debate returns to landing page
+  useEffect(() => {
+    const handlePopState = () => {
+      if (window.location.pathname !== '/debate' && isDebating) {
+        setCurrentQuery('')
+        reset()
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [isDebating, reset])
+
   const handleStart = (query, model) => {
     setCurrentQuery(query)
+    window.history.pushState({}, '', '/debate')
     startDebate(query, model)
   }
 
   const handleReset = () => {
     setCurrentQuery('')
     reset()
+    window.history.pushState({}, '', '/')
     // Clear shared debate URL
     if (sharedDebate) {
       setSharedDebate(null)
-      window.history.pushState({}, '', '/')
     }
   }
 
