@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -63,6 +63,8 @@ def load_debate(debate_id: str) -> dict | None:
 @router.post("/debate")
 async def run_debate(request: DebateRequest):
     """Stream a full debate as Server-Sent Events."""
+    if not request.query or not request.query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
 
     async def generate():
         try:
