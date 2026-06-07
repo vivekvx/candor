@@ -9,6 +9,7 @@ the loop automatically falls back to the next provider in the chain.
 
 import json
 import logging
+import re
 from typing import Any
 
 import litellm
@@ -231,6 +232,27 @@ async def run_agent_with_tools(
         assistant_message = response.choices[0].message
 
         if not _has_tool_calls(assistant_message):
+            text_calls = _extract_text_function_calls(assistant_message.content or "")
+            if text_calls and total_tool_calls_made < MAX_TOOL_CALLS_PER_AGENT:
+                logger.info(
+                    "%s emitted %d text-formatted tool call(s) (no native tool_calls) "
+                    "— executing them and asking for a clean final answer",
+                    agent_name,
+                    len(text_calls),
+                )
+                messages.append({"role": "assistant", "content": assistant_message.content})
+                tool_results = await _execute_text_function_calls(text_calls, agent_name)
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Tool results:\n" + json.dumps(tool_results) +
+                        "\n\nDo not call any more tools or write <function=...> tags. "
+                        "Respond now with ONLY your final answer as a single valid JSON object."
+                    ),
+                })
+                total_tool_calls_made += len(text_calls)
+                continue
+
             logger.info(
                 "%s finished after %d tool call(s) using %s",
                 agent_name,
@@ -279,6 +301,66 @@ def _has_tool_calls(assistant_message: Any) -> bool:
         and assistant_message.tool_calls is not None
         and len(assistant_message.tool_calls) > 0
     )
+
+
+# Some models (notably Llama variants via Groq/OpenRouter) emit tool calls
+# as plain text instead of structured tool_calls — either
+# <function=name>{"arg": "val"}</function> or <function=name [{"arg": "val"}]</function>
+# (no closing '>' on the opening tag). _has_tool_calls misses both, so without
+# this the malformed text becomes the agent's "final answer" verbatim.
+_TEXT_FUNCTION_CALL_PATTERN = re.compile(
+    r"<function=([a-zA-Z0-9_]+)\s*>?\s*(.*?)\s*</function>",
+    re.DOTALL,
+)
+
+
+def _extract_text_function_calls(content: str) -> list[dict]:
+    """
+    Best-effort recovery of tool calls a model wrote as plain text.
+
+    Returns a list of {"name": str, "arguments": dict}. Entries whose
+    argument blob isn't valid JSON, or isn't an object (or single-element
+    array of one), are silently skipped — this is recovery from a malformed
+    response, not validation, so we never raise here.
+    """
+    calls: list[dict] = []
+    if not content:
+        return calls
+
+    for match in _TEXT_FUNCTION_CALL_PATTERN.finditer(content):
+        name = match.group(1)
+        raw_arguments = match.group(2).strip()
+        try:
+            parsed = json.loads(raw_arguments)
+        except json.JSONDecodeError:
+            continue
+
+        if isinstance(parsed, list):
+            parsed = parsed[0] if parsed and isinstance(parsed[0], dict) else None
+        if not isinstance(parsed, dict):
+            continue
+
+        calls.append({"name": name, "arguments": parsed})
+
+    return calls
+
+
+async def _execute_text_function_calls(calls: list[dict], agent_name: str) -> list[dict]:
+    """
+    Run tool calls recovered from plain-text model output.
+
+    Returns plain {"tool": name, "result": ...} dicts — fed back as a
+    'user' message rather than 'tool' messages, since there's no native
+    tool_call_id to pair them with and mixing roles incorrectly can trip
+    provider-side message validation.
+    """
+    results = []
+    for call in calls:
+        tool_name = call["name"]
+        logger.info("%s calling tool (text-format recovery): %s", agent_name, tool_name)
+        tool_result = await execute_tool_call(tool_name, call["arguments"])
+        results.append({"tool": tool_name, "result": tool_result})
+    return results
 
 
 async def _execute_all_tool_calls(
