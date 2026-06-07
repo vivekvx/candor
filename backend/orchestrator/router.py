@@ -81,7 +81,7 @@ ALL_MODELS = [
         "note": "Free via OpenRouter — separate token pool from Groq",
     },
     {
-        "id": "openrouter/google/gemma-3-27b-it:free",
+        "id": "openrouter/qwen/qwen3-14b:free",
         "name": "Gemma 3 27B (OpenRouter)",
         "provider": "OpenRouter",
         "key_field": "openrouter_api_key",
@@ -165,7 +165,7 @@ LOAD_BALANCED_STEP_MODELS = {
     "advocate_round1": "groq/llama-3.3-70b-versatile",
     "challenger_round1": "openrouter/meta-llama/llama-3.3-70b-instruct:free",
     "advocate_round2": "groq/llama-3.3-70b-versatile",
-    "challenger_round2": "openrouter/google/gemma-3-27b-it:free",
+    "challenger_round2": "openrouter/qwen/qwen3-14b:free",
     "arbitrator": "groq/llama-3.3-70b-versatile",
 }
 
