@@ -85,6 +85,35 @@ async def _call_llm(model: str, system_prompt: str, user_content: str, state: De
     raise last_error or RuntimeError(f"All models exhausted for step {step}")
 
 
+def _ensure_valid_verdict(verdict: dict) -> dict:
+    """
+    Guard against a malformed arbitrator response reaching the frontend.
+
+    _call_llm returns {"error": "Failed to parse model response", "raw": ...}
+    when the model's JSON doesn't parse — that shape lacks bull_score/
+    bear_score/verdict that the frontend expects, and was being stored and
+    streamed to the user verbatim as if it were a real verdict. Detect that
+    and substitute a safe, complete fallback shape with all expected keys
+    present (zeroed scores, an explanatory message) instead.
+    """
+    if isinstance(verdict, dict) and "bull_score" in verdict and "verdict" in verdict:
+        return verdict
+
+    logger.error("Arbitrator returned a malformed verdict shape: %s", verdict)
+    return {
+        "error": verdict.get("error", "Arbitrator returned a malformed response")
+        if isinstance(verdict, dict) else "Arbitrator returned a malformed response",
+        "bull_score": 0,
+        "bear_score": 0,
+        "verdict": "Could not generate a verdict — please try the debate again.",
+        "strongest_bull_point": "",
+        "strongest_bear_point": "",
+        "what_to_find_out": [],
+        "if_i_were_you": "The AI arbitrator's response could not be parsed. Please retry the debate.",
+        "negotiation_tip": "",
+    }
+
+
 class DebateOrchestrator:
     def __init__(self, state: DebateState):
         self.state = state
@@ -202,6 +231,7 @@ class DebateOrchestrator:
         )
 
         verdict = await _call_llm(model, system_prompt, full_transcript, self.state, step="arbitrator")
+        verdict = _ensure_valid_verdict(verdict)
         self.state.verdict = verdict
         self.state.completed_at = time.time()
         self.state.round = 3
