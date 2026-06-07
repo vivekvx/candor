@@ -103,10 +103,21 @@ class DebateOrchestrator:
         advocate_prompt = _load_prompt("advocate")
         challenger_prompt = _load_prompt("challenger").replace("{advocate_output}", "")
 
+        # return_exceptions=True keeps one agent's failure from cancelling the
+        # other mid-flight and silently killing the SSE stream — instead both
+        # results (or exceptions) come back so we can surface a clear error.
         advocate_raw, challenger_raw = await asyncio.gather(
             run_agent_with_tools(advocate_prompt, self.state.query, advocate_model, "Advocate"),
             run_agent_with_tools(challenger_prompt, self.state.query, challenger_model, "Challenger"),
+            return_exceptions=True,
         )
+
+        for agent_name, raw_result in (("Advocate", advocate_raw), ("Challenger", challenger_raw)):
+            if isinstance(raw_result, BaseException):
+                logger.error("Round 1 %s task raised: %s", agent_name, raw_result)
+                raise RuntimeError(
+                    f"Round 1 failed — {agent_name} agent raised an unrecoverable error: {raw_result}"
+                )
 
         advocate_out = parse_json_response(advocate_raw)
         challenger_out = parse_json_response(challenger_raw)

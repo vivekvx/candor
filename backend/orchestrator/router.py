@@ -82,7 +82,7 @@ ALL_MODELS = [
     },
     {
         "id": "openrouter/qwen/qwen3-14b:free",
-        "name": "Gemma 3 27B (OpenRouter)",
+        "name": "Qwen3 14B (OpenRouter)",
         "provider": "OpenRouter",
         "key_field": "openrouter_api_key",
         "free": True,

@@ -21,6 +21,31 @@ UNHEALTHY_DURATION_SECONDS = 60
 # Key: provider prefix (e.g. "groq", "openrouter", "gemini")
 _provider_last_error: dict[str, float] = {}
 
+# Models confirmed permanently dead this session (e.g. 404 Not Found —
+# the endpoint doesn't exist, so retrying after a cooldown won't help).
+# Key: full LiteLLM model string (e.g. "openrouter/deepseek/deepseek-r1:free")
+_permanently_dead_models: set[str] = set()
+
+
+def mark_dead_permanent(model_string: str) -> None:
+    """
+    Permanently exclude a model from the fallback chain for this process.
+
+    Called on litellm.NotFoundError (HTTP 404) — unlike a rate limit, a
+    missing endpoint will not recover after a cooldown window, so we stop
+    wasting calls on it for the rest of the session.
+    """
+    _permanently_dead_models.add(model_string)
+    logger.warning(
+        "Model '%s' returned 404 Not Found — permanently marked dead for this session.",
+        model_string,
+    )
+
+
+def is_model_dead(model_string: str) -> bool:
+    """Return True if this exact model string was permanently marked dead."""
+    return model_string in _permanently_dead_models
+
 
 def mark_provider_rate_limited(model_string: str) -> None:
     """
@@ -67,17 +92,19 @@ def get_healthy_fallback_chain(
     fallbacks as a last resort. This way a debate never fails outright
     just because every provider looked unhealthy a minute ago.
     """
+    live_chain = [model for model in full_chain if not is_model_dead(model)]
+
     healthy_models = [
-        model for model in full_chain
+        model for model in live_chain
         if is_provider_healthy(model)
     ]
     unhealthy_models = [
-        model for model in full_chain
+        model for model in live_chain
         if not is_provider_healthy(model)
     ]
 
     all_models = []
-    if preferred_model not in all_models:
+    if not is_model_dead(preferred_model) and preferred_model not in all_models:
         all_models.append(preferred_model)
     for model in healthy_models:
         if model not in all_models:

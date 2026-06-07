@@ -17,6 +17,7 @@ from orchestrator.tool_schemas import DEBATE_TOOL_SCHEMAS
 from orchestrator.tool_executor import execute_tool_call, parse_tool_arguments
 from orchestrator.provider_health import (
     mark_provider_rate_limited,
+    mark_dead_permanent,
     get_healthy_fallback_chain,
 )
 
@@ -32,7 +33,6 @@ MAX_TOOL_CALLS_PER_AGENT = 2
 FALLBACK_MODEL_CHAIN = [
     "groq/llama-3.3-70b-versatile",
     "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-    "openrouter/google/gemma-3-27b-it:free",
     "openrouter/qwen/qwen3-14b:free",
     "gemini/gemini-2.0-flash",
     "anthropic/claude-haiku-3-5",
@@ -149,6 +149,24 @@ async def call_llm_with_fallback(
                 use_tools=use_tools,
             )
             return response, model
+
+        except litellm.NotFoundError as error:
+            # 404 means the endpoint doesn't exist — permanent, not transient.
+            # Cooldown-based rate-limit tracking would keep retrying it forever.
+            mark_dead_permanent(model)
+            logger.warning(
+                "Model '%s' returned 404 (not found) — marked permanently dead, trying next provider", model
+            )
+            last_error = error
+            continue
+
+        except litellm.RateLimitError as error:
+            mark_provider_rate_limited(model)
+            logger.warning(
+                "Model '%s' rate limited — trying next healthy provider", model
+            )
+            last_error = error
+            continue
 
         except Exception as error:
             if is_rate_limit_error(error):
