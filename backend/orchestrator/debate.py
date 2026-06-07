@@ -147,10 +147,22 @@ class DebateOrchestrator:
             "Now reinforce your weakest points and address their strongest counter-arguments."
         )
 
+        # Same return_exceptions=True guard as Round 1 — without it, one
+        # agent's failure cancels its sibling and can surface as
+        # asyncio.CancelledError (a BaseException, not Exception), which
+        # would silently kill the SSE stream past cross_examination_start.
         adv_raw, chall_raw = await asyncio.gather(
             run_agent_with_tools(advocate_rebuttal_prompt, self.state.query, advocate_model, "Advocate-Rebuttal"),
             run_agent_with_tools(challenger_prompt, self.state.query, challenger_model, "Challenger-Rebuttal"),
+            return_exceptions=True,
         )
+
+        for agent_name, raw_result in (("Advocate-Rebuttal", adv_raw), ("Challenger-Rebuttal", chall_raw)):
+            if isinstance(raw_result, BaseException):
+                logger.error("Round 2 %s task raised: %s", agent_name, raw_result)
+                raise RuntimeError(
+                    f"Round 2 failed — {agent_name} agent raised an unrecoverable error: {raw_result}"
+                )
 
         adv_rebuttal = parse_json_response(adv_raw)
         chall_rebuttal = parse_json_response(chall_raw)
