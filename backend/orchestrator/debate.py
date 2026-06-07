@@ -8,10 +8,10 @@ from typing import Any
 
 import litellm
 
-from backend.config import settings
-from backend.orchestrator.router import get_model_for_step, get_fallback_models
-from backend.orchestrator.state import DebateState
-from backend.orchestrator.agent_loop import run_agent_with_tools, parse_json_response
+from config import settings
+from orchestrator.router import get_model_for_step, get_fallback_models
+from orchestrator.state import DebateState
+from orchestrator.agent_loop import run_agent_with_tools, parse_json_response
 
 os.environ["GROQ_API_KEY"] = settings.groq_api_key or ""
 

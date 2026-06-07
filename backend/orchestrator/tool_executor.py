@@ -60,7 +60,7 @@ async def _route_to_tool(tool_name: str, arguments: dict) -> dict:
     Raises ValueError for unknown tool names so the error surfaces clearly.
     """
     if tool_name == "candor_get_company_intelligence":
-        from backend.mcp_server.tools.company_intelligence import (
+        from mcp_server.tools.company_intelligence import (
             CompanyIntelligenceInput,
             get_company_intelligence,
         )
@@ -68,7 +68,7 @@ async def _route_to_tool(tool_name: str, arguments: dict) -> dict:
         return await get_company_intelligence(tool_input)
 
     if tool_name == "candor_search_company_health":
-        from backend.mcp_server.tools.company_health import (
+        from mcp_server.tools.company_health import (
             CompanyHealthInput,
             search_company_health,
         )
@@ -76,7 +76,7 @@ async def _route_to_tool(tool_name: str, arguments: dict) -> dict:
         return await search_company_health(tool_input)
 
     if tool_name == "candor_benchmark_compensation":
-        from backend.mcp_server.tools.compensation import (
+        from mcp_server.tools.compensation import (
             CompensationInput,
             benchmark_compensation,
         )
@@ -84,7 +84,7 @@ async def _route_to_tool(tool_name: str, arguments: dict) -> dict:
         return await benchmark_compensation(tool_input)
 
     if tool_name == "candor_get_founder_signals":
-        from backend.mcp_server.tools.founder_signals import (
+        from mcp_server.tools.founder_signals import (
             FounderSignalsInput,
             get_founder_signals,
         )
@@ -92,7 +92,7 @@ async def _route_to_tool(tool_name: str, arguments: dict) -> dict:
         return await get_founder_signals(tool_input)
 
     if tool_name == "candor_get_market_timing":
-        from backend.mcp_server.tools.market_timing import (
+        from mcp_server.tools.market_timing import (
             MarketTimingInput,
             get_market_timing,
         )

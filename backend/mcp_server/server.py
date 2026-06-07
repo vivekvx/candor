@@ -1,10 +1,10 @@
 from fastmcp import FastMCP
 
-from backend.mcp_server.tools.company_health import CompanyHealthInput, search_company_health
-from backend.mcp_server.tools.compensation import CompensationInput, benchmark_compensation
-from backend.mcp_server.tools.founder_signals import FounderSignalsInput, get_founder_signals
-from backend.mcp_server.tools.market_timing import MarketTimingInput, get_market_timing
-from backend.mcp_server.tools.company_intelligence import (
+from mcp_server.tools.company_health import CompanyHealthInput, search_company_health
+from mcp_server.tools.compensation import CompensationInput, benchmark_compensation
+from mcp_server.tools.founder_signals import FounderSignalsInput, get_founder_signals
+from mcp_server.tools.market_timing import MarketTimingInput, get_market_timing
+from mcp_server.tools.company_intelligence import (
     CompanyIntelligenceInput,
     get_company_intelligence,
 )

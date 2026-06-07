@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional
 
-from backend.config import settings
+from config import settings
 
 
 class AgentRole(str, Enum):
@@ -105,7 +105,7 @@ def get_quality_model() -> str:
     if _has_key("anthropic_api_key"):
         return "anthropic/claude-haiku-3-5"
     if _has_key("gemini_api_key"):
-        return "gemini/gemini-1.5-flash"
+        return "gemini/gemini-2.0-flash"
     if _has_key("groq_api_key"):
         return "groq/llama-3.3-70b-versatile"
     return "groq/llama-3.3-70b-versatile"
@@ -123,7 +123,7 @@ def get_fallback_models(failed_model: str) -> list[str]:
     if not failed_model.startswith("anthropic/") and _has_key("anthropic_api_key"):
         candidates.append("anthropic/claude-haiku-3-5")
     if not failed_model.startswith("gemini/") and _has_key("gemini_api_key"):
-        candidates.append("gemini/gemini-1.5-flash")
+        candidates.append("gemini/gemini-2.0-flash")
     # Same provider, different model
     if failed_model == "groq/llama-3.3-70b-versatile" and _has_key("groq_api_key"):
         candidates.append("groq/llama-3.1-8b-instant")

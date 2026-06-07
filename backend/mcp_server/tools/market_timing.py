@@ -3,8 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from backend.mcp_server.tools import tavily_search
-from backend.mcp_server.tools.sanitizer import sanitize_web_content
+from mcp_server.tools import tavily_search
+from mcp_server.tools.sanitizer import sanitize_web_content
 
 MarketDirection = Literal["growing", "contracting", "stable", "unclear"]
 

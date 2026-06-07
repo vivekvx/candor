@@ -8,10 +8,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from backend.orchestrator.debate import DebateOrchestrator
-from backend.orchestrator.router import get_available_models
-from backend.orchestrator.state import DebateState
-from backend.mcp_server.tools.sanitizer import INJECTION_PATTERNS
+from orchestrator.debate import DebateOrchestrator
+from orchestrator.router import get_available_models
+from orchestrator.state import DebateState
+from mcp_server.tools.sanitizer import INJECTION_PATTERNS
 
 router = APIRouter(prefix="/api", tags=["debate"])
 

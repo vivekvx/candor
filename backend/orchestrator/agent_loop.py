@@ -13,8 +13,8 @@ from typing import Any
 
 import litellm
 
-from backend.orchestrator.tool_schemas import DEBATE_TOOL_SCHEMAS
-from backend.orchestrator.tool_executor import execute_tool_call, parse_tool_arguments
+from orchestrator.tool_schemas import DEBATE_TOOL_SCHEMAS
+from orchestrator.tool_executor import execute_tool_call, parse_tool_arguments
 
 logger = logging.getLogger(__name__)
 

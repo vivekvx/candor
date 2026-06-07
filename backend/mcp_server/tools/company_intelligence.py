@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 from pydantic import BaseModel
 
-from backend.mcp_server.tools.cache import (
+from mcp_server.tools.cache import (
     get_cached_intelligence,
     save_intelligence_to_cache,
 )
