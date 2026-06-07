@@ -135,7 +135,7 @@ ROLE_TIER_MAP = {
     "challenger_round1": ModelTier.FAST,
     "advocate_round2": ModelTier.FAST,
     "challenger_round2": ModelTier.QUALITY,
-    "arbitrator": ModelTier.QUALITY,
+    "arbitrator": ModelTier.FAST,
 }
 
 
