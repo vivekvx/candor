@@ -4,6 +4,8 @@ import QueryInput from './components/QueryInput'
 import DebateArena from './components/DebateArena'
 import UserProfile, { useUserProfile } from './components/UserProfile'
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || ''
+
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null } }
   static getDerivedStateFromError(error) { return { error } }
@@ -39,7 +41,7 @@ export default function App() {
   useEffect(() => {
     const match = window.location.pathname.match(/^\/debate\/([a-f0-9]+)$/)
     if (match) {
-      fetch(`/api/debate/${match[1]}`)
+      fetch(`${API_BASE_URL}/api/debate/${match[1]}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => { if (data) setSharedDebate(data) })
         .catch(() => {})

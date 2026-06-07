@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef } from 'react'
 import { useDebateHistory } from './useDebateHistory'
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || ''
+
 function formatError(message) {
   if (!message) return 'Something went wrong. Please try again.'
   const msg = message.toLowerCase()
@@ -46,7 +48,7 @@ export function useDebate() {
     })()
 
     try {
-      const response = await fetch('/api/debate', {
+      const response = await fetch(`${API_BASE_URL}/api/debate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, model, user_profile: profile }),

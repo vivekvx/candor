@@ -24,6 +24,18 @@ structured verdict with a negotiation package.
 | Frontend | React + Vite |
 | Deployment | Railway + Vercel |
 
+## Live Demo
+
+🌐 **[Try Candor](https://your-vercel-url.vercel.app)**
+
+Ask any career question. Three AI agents debate it.
+One honest verdict.
+
+## Example Questions
+- "Should I join Zepto as a backend engineer for 42 LPA?"
+- "Is this ESOP offer from a Series A startup worth taking?"
+- "Leave TCS after 2 years for a product startup?"
+
 ## Phases
 
 See `docs/phases.md` for the build plan.

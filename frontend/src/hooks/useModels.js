@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || ''
+
 export function useModels() {
   const [models, setModels] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/models')
+    fetch(`${API_BASE_URL}/api/models`)
       .then(r => r.json())
       .then(d => { setModels(d.models || []); setLoading(false) })
       .catch(() => {

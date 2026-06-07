@@ -9,15 +9,27 @@ from backend.config import settings
 
 app = FastAPI(title="Candor API", version="0.1.0")
 
+allowed_origins = [
+    os.getenv("FRONTEND_URL", settings.frontend_url),
+    "http://localhost:5173",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url],
+    allow_origins=allowed_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(debate_router)
 app.include_router(health_router)
+
+
+@app.get("/ping")
+async def ping():
+    """Health check endpoint for Railway keep-warm."""
+    return {"status": "ok"}
 
 
 @app.on_event("startup")
