@@ -38,6 +38,10 @@ async def _call_llm(model: str, system_prompt: str, user_content: str, state: De
                 ],
                 temperature=0.7,
                 response_format={"type": "json_object"},
+                # Bounds cost/latency and stretches free-tier daily quotas —
+                # the arbitrator's verdict JSON is the largest structured
+                # output in the system but still comfortably fits in 2000.
+                max_tokens=2000,
             )
             usage = response.usage
             cost = 0.0

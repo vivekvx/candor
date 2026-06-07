@@ -101,6 +101,8 @@ async def attempt_llm_call(
         messages: Full conversation history to send
         use_tools: If True, attaches DEBATE_TOOL_SCHEMAS and sets tool_choice=auto
     """
+    # Bounds cost/latency and stretches free-tier daily quotas — research/
+    # rebuttal JSON outputs observed live comfortably fit well under 2000.
     if use_tools:
         return await litellm.acompletion(
             model=model,
@@ -108,11 +110,13 @@ async def attempt_llm_call(
             tools=DEBATE_TOOL_SCHEMAS,
             tool_choice="auto",
             temperature=0.7,
+            max_tokens=2000,
         )
     return await litellm.acompletion(
         model=model,
         messages=messages,
         temperature=0.7,
+        max_tokens=2000,
     )
 
 
