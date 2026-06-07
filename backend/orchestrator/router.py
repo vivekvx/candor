@@ -136,10 +136,12 @@ def get_fallback_models(failed_model: str) -> list[str]:
     """
     candidates = []
     # Different provider first
+    # NOTE: anthropic deliberately excluded here — _has_key only checks the
+    # key is *set*, not that the account carries credits. A configured-but-
+    # uncredited Anthropic key produces a misleading "credit balance too low"
+    # as the terminal fallback error, masking the real rate-limit cause.
     if not failed_model.startswith("groq/") and _has_key("groq_api_key"):
         candidates.append("groq/llama-3.3-70b-versatile")
-    if not failed_model.startswith("anthropic/") and _has_key("anthropic_api_key"):
-        candidates.append("anthropic/claude-haiku-3-5")
     if not failed_model.startswith("gemini/") and _has_key("gemini_api_key"):
         candidates.append("gemini/gemini-2.0-flash")
     # Same provider, different model

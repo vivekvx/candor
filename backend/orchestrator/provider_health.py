@@ -80,6 +80,38 @@ def is_provider_healthy(model_string: str) -> bool:
     return seconds_since_error >= UNHEALTHY_DURATION_SECONDS
 
 
+def seconds_until_chain_recovers(model_chain: list[str]) -> int:
+    """
+    Estimate how long until the soonest provider in this chain becomes
+    healthy again — i.e. how long a user should wait before retrying.
+
+    Used to turn a flat "all providers exhausted" failure into a useful
+    "high demand, try again in ~N minutes" message. Permanently dead
+    models are ignored (no cooldown will revive them); models with no
+    recorded rate-limit error contribute 0 (they're healthy right now —
+    if the chain still failed, the real cause is something else, e.g.
+    every live model being simultaneously rate limited mid-request).
+
+    Returns 0 if no live model in the chain has a recorded rate-limit time.
+    """
+    live_models = [m for m in model_chain if not is_model_dead(m)]
+    if not live_models:
+        return 0
+
+    waits = []
+    for model in live_models:
+        provider = extract_provider_prefix(model)
+        last_error_time = _provider_last_error.get(provider)
+        if last_error_time is None:
+            continue
+        remaining = UNHEALTHY_DURATION_SECONDS - (time.time() - last_error_time)
+        waits.append(max(0, remaining))
+
+    if not waits:
+        return 0
+    return int(min(waits))
+
+
 def get_healthy_fallback_chain(
     preferred_model: str,
     full_chain: list[str],

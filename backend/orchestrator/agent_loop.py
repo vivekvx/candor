@@ -20,6 +20,7 @@ from orchestrator.provider_health import (
     mark_provider_rate_limited,
     mark_dead_permanent,
     get_healthy_fallback_chain,
+    seconds_until_chain_recovers,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,12 +32,15 @@ MAX_TOOL_CALLS_PER_AGENT = 2
 # Groq first (free, fast, 100K TPD), then OpenRouter free models (separate
 # token pool — doubles effective free-tier capacity), then paid providers
 # as a last resort if their keys are configured.
+# NOTE: Anthropic deliberately excluded — this account carries no API
+# credits, so including it only produces a misleading "credit balance too
+# low" as the *last* error in the chain, masking the real cause (free-tier
+# rate limits on Groq/OpenRouter/Gemini). Add it back once it's funded.
 FALLBACK_MODEL_CHAIN = [
     "groq/llama-3.3-70b-versatile",
     "openrouter/meta-llama/llama-3.3-70b-instruct:free",
     "openrouter/qwen/qwen3-14b:free",
     "gemini/gemini-2.0-flash",
-    "anthropic/claude-haiku-3-5",
 ]
 
 # Substrings that identify a rate-limit or quota error in an exception message.
@@ -219,9 +223,25 @@ async def run_agent_with_tools(
             )
         except RuntimeError as error:
             logger.error("%s all providers exhausted: %s", agent_name, error)
+            wait_seconds = seconds_until_chain_recovers(
+                build_model_priority_list(model)
+            )
+            if wait_seconds > 0:
+                wait_minutes = max(1, round(wait_seconds / 60))
+                user_message = (
+                    f"Demand is high right now — every available AI provider is "
+                    f"at its free-tier limit. Try again in about {wait_minutes} "
+                    f"minute{'s' if wait_minutes != 1 else ''}."
+                )
+            else:
+                user_message = (
+                    "Every available AI provider rejected this request right now "
+                    "(rate limit, quota, or billing issue). Please try again shortly."
+                )
             return json.dumps({
                 "error": "All AI providers rate limited",
-                "message": str(error),
+                "message": user_message,
+                "retry_after_seconds": wait_seconds,
             })
 
         if model_used != model:
