@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     default_model: str = "groq/llama-3.3-70b-versatile"
     supabase_url: str = ""
     supabase_key: str = ""
+    groq_paid_key: str = ""
 
     class Config:
         env_file = str(Path(__file__).parent / ".env")

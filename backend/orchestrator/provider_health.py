@@ -153,8 +153,11 @@ def extract_provider_prefix(model_string: str) -> str:
     Extract the provider name from a LiteLLM model string.
 
     e.g. "groq/llama-3.3-70b" -> "groq"
+         "groq/llama-3.3-70b:paid" -> "groq"
          "openrouter/deepseek/deepseek-r1:free" -> "openrouter"
     """
-    if "/" in model_string:
-        return model_string.split("/")[0]
-    return model_string
+    # Strip :paid/:free suffix if present
+    clean = model_string.split(":")[0]
+    if "/" in clean:
+        return clean.split("/")[0]
+    return clean

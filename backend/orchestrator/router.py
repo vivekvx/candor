@@ -1,7 +1,10 @@
+import logging
 from enum import Enum
 from typing import Optional
 
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRole(str, Enum):
@@ -36,40 +39,33 @@ ALL_MODELS = [
         "note": "Fastest Groq model",
     },
     {
+        "id": "gemini/gemini-2.0-flash",
+        "name": "Gemini 2.0 Flash",
+        "provider": "Google",
+        "key_field": "gemini_api_key",
+        "free": True,
+        "speed": "fast",
+        "note": "Free tier: 1500 requests/day",
+    },
+    {
+        "id": "groq/llama-3.3-70b-versatile:paid",
+        "name": "Llama 3.3 70B (Paid)",
+        "provider": "Groq",
+        "key_field": "groq_paid_key",
+        "free": False,
+        "is_paid": True,
+        "speed": "fast",
+        "note": "Paid Groq — fallback only",
+    },
+    {
         "id": "anthropic/claude-haiku-3-5",
         "name": "Claude Haiku 3.5",
         "provider": "Anthropic",
         "key_field": "anthropic_api_key",
         "free": False,
+        "is_paid": True,
         "speed": "fast",
-        "note": "Fast Claude model",
-    },
-    {
-        "id": "anthropic/claude-sonnet-4-5",
-        "name": "Claude Sonnet 4.5",
-        "provider": "Anthropic",
-        "key_field": "anthropic_api_key",
-        "free": False,
-        "speed": "medium",
-        "note": "Best quality",
-    },
-    {
-        "id": "gemini/gemini-1.5-flash",
-        "name": "Gemini 1.5 Flash",
-        "provider": "Google",
-        "key_field": "gemini_api_key",
-        "free": False,
-        "speed": "fast",
-        "note": "Google's fast model",
-    },
-    {
-        "id": "gemini/gemini-2.0-flash",
-        "name": "Gemini 2.0 Flash",
-        "provider": "Google",
-        "key_field": "gemini_api_key",
-        "free": False,
-        "speed": "fast",
-        "note": "Latest Gemini Flash",
+        "note": "Paid Anthropic — fallback only",
     },
     {
         "id": "openrouter/meta-llama/llama-3.3-70b-instruct:free",
@@ -130,25 +126,51 @@ def get_quality_model() -> str:
     return "groq/llama-3.3-70b-versatile"
 
 
+def get_fallback_chain() -> list[str]:
+    """
+    Return the complete fallback chain in strict order:
+    1. groq free (always present as fallback)
+    2-4. OpenRouter free models (always present as fallback)
+    5. gemini free (always present as fallback)
+    6. groq paid (only if GROQ_PAID_KEY set)
+    7. anthropic (only if ANTHROPIC_API_KEY set)
+
+    Paid providers activate only when their env var is non-empty.
+    Never raises — skips missing keys silently.
+    """
+    chain = [
+        "groq/llama-3.3-70b-versatile",
+        "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+        "openrouter/qwen/qwen3-14b:free",
+        "gemini/gemini-2.0-flash",
+    ]
+
+    # Groq paid — only if separate GROQ_PAID_KEY is set
+    if settings.groq_paid_key and len(settings.groq_paid_key) > 8:
+        chain.append("groq/llama-3.3-70b-versatile:paid")
+    else:
+        logger.debug("groq paid model skipped — key not configured")
+
+    # Anthropic — only if ANTHROPIC_API_KEY is set
+    if settings.anthropic_api_key and len(settings.anthropic_api_key) > 8:
+        chain.append("anthropic/claude-haiku-3-5")
+    else:
+        logger.debug("anthropic model skipped — key not configured")
+
+    return chain
+
+
 def get_fallback_models(failed_model: str) -> list[str]:
     """
     Return ordered list of fallback models to try when `failed_model` fails.
-    Excludes the failed model and prefers different providers.
+    Excludes the failed model and continues from the full fallback chain.
     """
-    candidates = []
-    # Different provider first
-    # NOTE: anthropic deliberately excluded here — _has_key only checks the
-    # key is *set*, not that the account carries credits. A configured-but-
-    # uncredited Anthropic key produces a misleading "credit balance too low"
-    # as the terminal fallback error, masking the real rate-limit cause.
-    if not failed_model.startswith("groq/") and _has_key("groq_api_key"):
-        candidates.append("groq/llama-3.3-70b-versatile")
-    if not failed_model.startswith("gemini/") and _has_key("gemini_api_key"):
-        candidates.append("gemini/gemini-2.0-flash")
-    # Same provider, different model
-    if failed_model == "groq/llama-3.3-70b-versatile" and _has_key("groq_api_key"):
-        candidates.append("groq/llama-3.1-8b-instant")
-    return candidates
+    full_chain = get_fallback_chain()
+    try:
+        idx = full_chain.index(failed_model)
+        return full_chain[idx + 1:]
+    except ValueError:
+        return full_chain
 
 
 ROLE_TIER_MAP = {
