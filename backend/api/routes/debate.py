@@ -154,7 +154,7 @@ async def run_debate(request: DebateRequest, http_request: Request):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-    client_ip = http_request.client.host
+    client_ip = http_request.headers.get("X-Forwarded-For", http_request.client.host).split(",")[0].strip()
     allowed, message = await check_rate_limit(client_ip)
     if not allowed:
         raise HTTPException(status_code=429, detail={"error": "rate_limited", "message": message})

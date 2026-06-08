@@ -8,13 +8,15 @@ Cache entries expire after 24 hours.
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 from typing import Optional
 
 # Directory where cached intelligence JSON files are stored
-CACHE_DIR = Path("intelligence_cache")
-CACHE_DIR.mkdir(exist_ok=True)
+_vol = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+CACHE_DIR = Path(_vol) / "debate_cache" if _vol else Path("/tmp/debate_cache")
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # 24 hours in seconds — MCA data changes infrequently
 CACHE_DURATION_SECONDS = 86400
