@@ -12,6 +12,7 @@ that BeautifulSoup can parse directly, and Playwright/Chromium is too
 heavy to run reliably on Railway.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -69,15 +70,29 @@ async def fetch_html(url: str) -> str:
 
     No headless browser needed — both ZaubaCorp and AmbitionBox serve
     server-rendered HTML that is fully present in the initial response.
+
+    Resilience: hard 10s timeout + one retry with 1s backoff on timeout/
+    connect errors. Raises after the second failed attempt so callers can
+    set mca_verified: False explicitly rather than silently continuing.
     """
-    async with httpx.AsyncClient(
-        timeout=REQUEST_TIMEOUT_SECONDS,
-        follow_redirects=True,
-        headers=REQUEST_HEADERS,
-    ) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        return response.text
+    last_error: Optional[Exception] = None
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(
+                timeout=10.0,
+                follow_redirects=True,
+                headers=REQUEST_HEADERS,
+            ) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                return response.text
+        except (httpx.TimeoutException, httpx.ConnectError) as error:
+            last_error = error
+            if attempt == 0:
+                await asyncio.sleep(1)
+                continue
+            raise
+    raise last_error
 
 
 async def get_company_intelligence(input_data: CompanyIntelligenceInput) -> dict:
@@ -101,20 +116,35 @@ async def get_company_intelligence(input_data: CompanyIntelligenceInput) -> dict
     # Source-registry fields — every claim traces back to where/when it came from.
     result["retrieved_at"] = datetime.now(timezone.utc).isoformat()
     result["source_url"] = "mca_filing"
+    # Explicit honesty flag — True only when MCA registration data was actually
+    # extracted from ZaubaCorp. Never silently implies verification happened.
+    result["mca_verified"] = False
 
     try:
         company_url = await search_zauba_corp(input_data.company_name, input_data.city)
 
         if company_url:
             company_data = await extract_company_details(company_url)
-            result["registration"] = company_data.get("registration", {})
-            result["directors"] = company_data.get("directors", [])
-            result["charge_documents"] = company_data.get("charges", [])
-            result["compliance_signals"] = company_data.get("compliance", [])
-            result["red_flags"] = analyze_red_flags(company_data)
-            result["positive_signals"] = analyze_positive_signals(company_data)
+
+            if company_data.get("structure_changed"):
+                result["status"] = "parse_error"
+                result["reason"] = "MCA data source format changed — data unavailable"
+                result["mca_verified"] = False
+                result["data_quality"] = "parse_error"
+                result["red_flags"].append(
+                    "MCA data source format changed — registration data could not be verified"
+                )
+            else:
+                result["registration"] = company_data.get("registration", {})
+                result["directors"] = company_data.get("directors", [])
+                result["charge_documents"] = company_data.get("charges", [])
+                result["compliance_signals"] = company_data.get("compliance", [])
+                result["red_flags"] = analyze_red_flags(company_data)
+                result["positive_signals"] = analyze_positive_signals(company_data)
+                result["mca_verified"] = bool(result["registration"])
         else:
             result["data_quality"] = "not_found"
+            result["mca_verified"] = False
             result["red_flags"].append(
                 "Company not found in MCA registry — "
                 "verify company name and registration status"
@@ -123,6 +153,16 @@ async def get_company_intelligence(input_data: CompanyIntelligenceInput) -> dict
         salary_data = await scrape_ambitionbox_salaries(input_data.company_name)
         result["salary_benchmarks"] = salary_data
 
+    except (httpx.TimeoutException, httpx.ConnectError) as error:
+        logger.error(
+            "MCA data source unreachable for '%s': %s", input_data.company_name, error
+        )
+        result["status"] = "unavailable"
+        result["reason"] = "MCA data source unreachable"
+        result["mca_verified"] = False
+        result["data_quality"] = "unavailable"
+        result["red_flags"].append("MCA data source unreachable — registration could not be verified")
+
     except Exception as error:
         logger.error(
             "Company intelligence fetch failed for '%s': %s",
@@ -130,6 +170,7 @@ async def get_company_intelligence(input_data: CompanyIntelligenceInput) -> dict
             error,
         )
         result["data_quality"] = "partial"
+        result["mca_verified"] = False
         result["red_flags"].append(f"Could not fetch complete data: {error}")
 
     save_intelligence_to_cache(input_data.company_name, result)
@@ -153,6 +194,7 @@ def _build_empty_result(company_name: str) -> dict:
         "salary_benchmarks": {},
         "red_flags": [],
         "positive_signals": [],
+        "mca_verified": False,
         "data_quality": "full",
     }
 
@@ -216,11 +258,16 @@ async def extract_company_details(company_url: str) -> dict:
     filed a formal loan/debt instrument with the MCA government registry.
     Multiple unsatisfied charges indicate significant debt burden.
     """
-    details = {"registration": {}, "directors": [], "charges": [], "compliance": []}
+    details = {"registration": {}, "directors": [], "charges": [], "compliance": [], "structure_changed": False}
 
     try:
         html = await fetch_html(company_url)
         soup = BeautifulSoup(html, "html.parser")
+
+        if not soup.find("table"):
+            # ZaubaCorp changed their HTML — our selectors can no longer be trusted.
+            details["structure_changed"] = True
+            return details
 
         details["registration"] = extract_registration_details(soup)
         details["directors"] = extract_directors(soup)
