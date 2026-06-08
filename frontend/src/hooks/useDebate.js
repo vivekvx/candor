@@ -55,6 +55,26 @@ export function useDebate() {
         signal: abortRef.current.signal,
       })
 
+      if (response.status === 429) {
+        let message = 'High demand right now. Try again in a few minutes.'
+        try {
+          const data = await response.json()
+          message = data.detail?.message || message
+        } catch {}
+        setState(s => ({ ...s, status: 'rate_limited', error: message }))
+        return
+      }
+
+      if (!response.ok) {
+        let message = `Request failed (HTTP ${response.status})`
+        try {
+          const data = await response.json()
+          message = data.detail?.message || data.detail || message
+        } catch {}
+        setState(s => ({ ...s, status: 'error', error: formatError(message) }))
+        return
+      }
+
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''

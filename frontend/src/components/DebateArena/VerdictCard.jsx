@@ -1,5 +1,98 @@
 import { useState, useEffect } from 'react'
 
+const BADGE_CONFIG = {
+  'HIGH':        { color: '#22c55e', bg: '#052e16', icon: '✓' },
+  'MODERATE':    { color: '#f59e0b', bg: '#1c1400', icon: '~' },
+  'LOW':         { color: '#ef4444', bg: '#1c0000', icon: '!' },
+  'VERY LOW':    { color: '#ef4444', bg: '#1c0000', icon: '!!' },
+  'NO DATA':     { color: '#6b7280', bg: '#111', icon: '?' },
+}
+
+function DataConfidenceBadge({ confidence }) {
+  if (!confidence) return null
+  const config = BADGE_CONFIG[confidence.label] || BADGE_CONFIG['NO DATA']
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: '6px',
+      background: config.bg, border: `1px solid ${config.color}`,
+      borderRadius: '6px', padding: '4px 10px', fontSize: '0.8rem',
+      color: config.color, marginBottom: '1rem'
+    }}>
+      <span>{config.icon}</span>
+      <span>Data confidence: {confidence.label}</span>
+      <span style={{ color: '#666', fontSize: '0.75rem' }}>
+        ({confidence.tools_summary})
+      </span>
+    </div>
+  )
+}
+
+function ContradictionWarning({ disputes }) {
+  if (!disputes || disputes.length === 0) return null
+  return (
+    <div style={{
+      background: '#1c1000', border: '1px solid #f59e0b',
+      borderRadius: '8px', padding: '0.75rem 1rem', margin: '0 0 1rem',
+      fontSize: '0.85rem', color: '#f59e0b'
+    }}>
+      <strong>⚠ Factual disputes detected</strong>
+      <p style={{ margin: '4px 0 0', color: '#d97706' }}>
+        The agents gave contradictory information about:{' '}
+        {disputes.join(', ')}.{' '}
+        Verify these independently before deciding.
+      </p>
+    </div>
+  )
+}
+
+function ReasoningTrail({ text }) {
+  if (!text) return null
+  return (
+    <div style={{
+      background: '#111', border: '1px solid #222',
+      borderRadius: '8px', padding: '1rem', margin: '0 0 24px'
+    }}>
+      <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '6px',
+                    textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        Why this verdict
+      </div>
+      <p style={{ color: '#ccc', lineHeight: 1.6, margin: 0, fontSize: '0.9rem' }}>
+        {text}
+      </p>
+    </div>
+  )
+}
+
+const GLOSSARY = {
+  'charge document': 'A record that the company has pledged its assets as loan collateral. High risk signal for employees.',
+  'mca filing': 'Ministry of Corporate Affairs registration. Verifies the company is legally registered in India.',
+  'esop': 'Employee Stock Ownership Plan. Shares the company grants you — only valuable if the company exits or IPOs.',
+  'liquidation preference': 'Investors get paid before employees in an acquisition. 1x means they recover their investment first.',
+  'burn rate': 'How fast the company spends money. High burn + low runway = layoff risk.',
+  'series b': 'Second major funding round. Indicates investor confidence but also higher valuation pressure.',
+  'ndr': 'Net Dollar Retention. How much revenue is retained from existing customers. Above 100% means customers expand.',
+  'nbfc': 'Non-Banking Financial Company. Requires RBI license. Missing license = regulatory risk.',
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function GlossaryText({ text }) {
+  if (!text) return null
+  const escaped = escapeHtml(text)
+  const html = Object.entries(GLOSSARY).reduce((acc, [term, def]) =>
+    acc.replace(
+      new RegExp(`\\b(${term})\\b`, 'gi'),
+      `<span title="${escapeHtml(def)}" style="border-bottom:1px dotted #666;cursor:help">$1</span>`
+    ), escaped)
+  return <span dangerouslySetInnerHTML={{ __html: html }} />
+}
+
 function ScoreBar({ label, score, color }) {
   const [width, setWidth] = useState(0)
   useEffect(() => {
@@ -121,6 +214,9 @@ export default function VerdictCard({ verdict, debateId }) {
         </div>
       </div>
 
+      <DataConfidenceBadge confidence={v.data_confidence} />
+      <ContradictionWarning disputes={v.unresolved_disputes} />
+
       {(v.bull_score !== undefined || v.bear_score !== undefined) && (
         <div style={{ display: 'flex', gap: '24px', marginBottom: '24px' }}>
           <ScoreBar label="BULL CASE" score={v.bull_score ?? 0} color="var(--advocate)" />
@@ -140,9 +236,11 @@ export default function VerdictCard({ verdict, debateId }) {
           paddingLeft: '16px',
           marginBottom: '24px',
         }}>
-          {v.verdict}
+          <GlossaryText text={v.verdict} />
         </div>
       )}
+
+      <ReasoningTrail text={v.reasoning_trail} />
 
       {v.what_to_find_out && v.what_to_find_out.length > 0 && (
         <div style={{ marginBottom: '24px' }}>
@@ -171,7 +269,7 @@ export default function VerdictCard({ verdict, debateId }) {
             IF I WERE YOU
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-            {v.if_i_were_you}
+            <GlossaryText text={v.if_i_were_you} />
           </div>
         </div>
       )}

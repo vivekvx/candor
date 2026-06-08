@@ -111,6 +111,24 @@ export default function DebateArena({ state, currentQuery, onReset }) {
         {/* Timeline */}
         <DebateTimeline status={status} />
 
+        {/* Rate limited */}
+        {status === 'rate_limited' && error && (
+          <div style={{
+            margin: '24px',
+            padding: '1.5rem',
+            backgroundColor: '#0f172a',
+            border: '1px solid #334155',
+            borderRadius: '8px',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>⏳</div>
+            <div style={{ color: '#94a3b8', fontSize: '0.95rem' }}>{error}</div>
+            <div style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+              Free tier — 3 debates per hour per user
+            </div>
+          </div>
+        )}
+
         {/* Error */}
         {status === 'error' && error && (
           <div style={{
