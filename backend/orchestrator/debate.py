@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,20 @@ PROMPTS_DIR = Path(__file__).parent.parent / "agents" / "prompts"
 
 def _load_prompt(name: str) -> str:
     return (PROMPTS_DIR / f"{name}.md").read_text()
+
+
+def _load_industry_overlay(query: str) -> str:
+    """Append industry-specific research guidance — silently falls back to
+    general.md if the detected industry has no overlay file (e.g. 'deeptech')."""
+    industry = detect_industry(query)
+    overlay_dir = PROMPTS_DIR / "overlays"
+    try:
+        return (overlay_dir / f"{industry}.md").read_text()
+    except FileNotFoundError:
+        try:
+            return (overlay_dir / "general.md").read_text()
+        except FileNotFoundError:
+            return ""
 
 
 async def _call_llm(model: str, system_prompt: str, user_content: str, state: DebateState, step: str = "") -> dict[str, Any]:
@@ -182,6 +197,51 @@ def validate_verdict(verdict: dict) -> tuple[bool, list[str]]:
     return len(failures) == 0, failures
 
 
+CONTRADICTION_SIGNALS = [
+    # (advocate_pattern, challenger_pattern, description)
+    (r"raised.*series [a-z]", r"no.*funding|unfunded|bootstrap", "funding status"),
+    (r"profitable", r"burn rate|losses|deficit", "profitability"),
+    (r"registered|mca.*found", r"not.*registered|not.*found.*mca", "MCA registration"),
+    (r"growing|growth", r"layoff|downsiz|shrink", "company trajectory"),
+    (r"\d+.*employee", r"\d+.*employee", "headcount"),  # both claim different numbers
+]
+
+
+def detect_contradictions(advocate_text: str, challenger_text: str) -> list[str]:
+    """
+    Find factual contradictions between advocate and challenger via string
+    matching — no LLM call. Never raises; any error yields an empty list.
+    """
+    try:
+        contradictions = []
+        adv = (advocate_text or "").lower()
+        chal = (challenger_text or "").lower()
+        for adv_pattern, chal_pattern, description in CONTRADICTION_SIGNALS:
+            if re.search(adv_pattern, adv) and re.search(chal_pattern, chal):
+                contradictions.append(description)
+        return contradictions
+    except Exception as error:
+        logger.warning("detect_contradictions failed, returning []: %s", error)
+        return []
+
+
+INDUSTRY_SIGNALS = {
+    "fintech": ["fintech", "payment", "lending", "neobank", "insurance", "wealth", "razorpay", "paytm", "cred", "slice"],
+    "edtech": ["edtech", "education", "learning", "upskill", "byju", "unacademy", "vedantu", "coursera"],
+    "ecommerce": ["ecommerce", "e-commerce", "marketplace", "meesho", "flipkart", "amazon", "zepto", "blinkit", "quick commerce"],
+    "saas": ["saas", "b2b software", "enterprise", "api", "platform", "freshworks", "zoho", "chargebee"],
+    "deeptech": ["ai", "machine learning", "robotics", "semiconductor", "deeptech", "research"],
+}
+
+
+def detect_industry(query: str) -> str:
+    query_lower = (query or "").lower()
+    for industry, signals in INDUSTRY_SIGNALS.items():
+        if any(s in query_lower for s in signals):
+            return industry
+    return "general"
+
+
 class DebateOrchestrator:
     def __init__(self, state: DebateState):
         self.state = state
@@ -197,8 +257,9 @@ class DebateOrchestrator:
         advocate_model = get_load_balanced_model("advocate_round1", self.state.model)
         challenger_model = get_load_balanced_model("challenger_round1", self.state.model)
 
-        advocate_prompt = _load_prompt("advocate")
-        challenger_prompt = _load_prompt("challenger").replace("{advocate_output}", "")
+        industry_overlay = _load_industry_overlay(self.state.query)
+        advocate_prompt = _load_prompt("advocate") + "\n\n" + industry_overlay
+        challenger_prompt = _load_prompt("challenger").replace("{advocate_output}", "") + "\n\n" + industry_overlay
 
         # return_exceptions=True keeps one agent's failure from cancelling the
         # other mid-flight and silently killing the SSE stream — instead both
@@ -235,13 +296,15 @@ class DebateOrchestrator:
         advocate_model = get_load_balanced_model("advocate_round2", self.state.model)
         challenger_model = get_load_balanced_model("challenger_round2", self.state.model)
 
+        industry_overlay = _load_industry_overlay(self.state.query)
         challenger_prompt = _load_prompt("challenger").replace(
             "{advocate_output}", self.state.advocate_research
-        )
+        ) + "\n\n" + industry_overlay
         advocate_rebuttal_prompt = (
             _load_prompt("advocate")
             + f"\n\nThe Challenger has raised these concerns:\n{self.state.challenger_research}\n\n"
             "Now reinforce your weakest points and address their strongest counter-arguments."
+            + "\n\n" + industry_overlay
         )
 
         # Same return_exceptions=True guard as Round 1 — without it, one
@@ -272,11 +335,30 @@ class DebateOrchestrator:
     async def run_arbitrator(self) -> dict:
         model = get_load_balanced_model("arbitrator", self.state.model)
         data_confidence = calculate_data_confidence(self.state)
+        self.state.data_confidence = data_confidence
+
+        unresolved_disputes = detect_contradictions(
+            self.state.advocate_research + self.state.advocate_rebuttal,
+            self.state.challenger_research + self.state.challenger_rebuttal,
+        )
+
+        arbitrator_context = {
+            "advocate_round1": self.state.advocate_research,
+            "challenger_round1": self.state.challenger_research,
+            "advocate_round2": self.state.advocate_rebuttal,
+            "challenger_round2": self.state.challenger_rebuttal,
+            "raw_tool_outputs": self.state.tool_outputs,
+            "data_confidence": self.state.data_confidence,
+            "tools_that_failed": self.state.tools_that_failed,
+            "unresolved_disputes": unresolved_disputes,
+        }
 
         profile_context = (
             f"\n\nDATA CONFIDENCE (mechanical, computed from real tool results — "
             f"not opinion): {json.dumps(data_confidence)}\n"
-            "Apply the INSUFFICIENT DATA RULE if label is 'NO DATA' or 'VERY LOW'."
+            "Apply the INSUFFICIENT DATA RULE if label is 'NO DATA' or 'VERY LOW'.\n\n"
+            f"RAW EVIDENCE CONTEXT (ground truth — check claims against this):\n"
+            f"{json.dumps({k: v for k, v in arbitrator_context.items() if k not in ('advocate_round1','challenger_round1','advocate_round2','challenger_round2')})}"
         )
         if self.state.user_profile:
             p = self.state.user_profile
@@ -318,6 +400,7 @@ class DebateOrchestrator:
                 verdict["verdict_quality_reason"] = failures
 
         verdict["data_confidence"] = data_confidence
+        verdict["unresolved_disputes"] = unresolved_disputes
         self.state.verdict = verdict
         self.state.completed_at = time.time()
         self.state.round = 3

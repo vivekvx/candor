@@ -420,13 +420,18 @@ async def _execute_all_tool_calls(
         tool_result = await execute_tool_call(tool_name, parsed_arguments)
 
         # Mechanical confidence inputs — counted from real outcomes, not LLM opinion.
+        # Also store raw outputs so the Arbitrator can check claims against them.
         if state is not None:
             state.tools_called_total += 1
-            returned_data = bool(tool_result) and not (
-                isinstance(tool_result, dict) and tool_result.get("status") == "error"
+            is_error = isinstance(tool_result, dict) and (
+                tool_result.get("status") == "error" or tool_result.get("error")
             )
+            returned_data = bool(tool_result) and not is_error
             if returned_data:
                 state.tools_returned_data_total += 1
+            else:
+                state.tools_that_failed.append(tool_name)
+            state.tool_outputs[tool_name] = tool_result
 
         tool_result_messages.append({
             "role": "tool",

@@ -40,6 +40,11 @@ class DebateState:
     tools_called_total: int = 0
     tools_returned_data_total: int = 0
 
+    # Raw evidence the Arbitrator can check claims against directly.
+    tool_outputs: dict = field(default_factory=dict)        # {tool_name: raw_result}
+    tools_that_failed: list = field(default_factory=list)   # [tool_name, ...]
+    data_confidence: dict = field(default_factory=dict)
+
     def add_usage(self, input_tokens: int, output_tokens: int, cost: float):
         self.total_input_tokens += input_tokens
         self.total_output_tokens += output_tokens
