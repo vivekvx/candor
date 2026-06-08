@@ -118,6 +118,25 @@ def _ensure_valid_verdict(verdict: dict) -> dict:
     }
 
 
+def _sanitize_agent_result(result: dict) -> dict:
+    """
+    Replace infrastructure errors (e.g. "All AI providers rate limited") with a
+    neutral placeholder before the result is stored/passed to the Arbitrator.
+
+    Without this, the Arbitrator reads error objects as if they were research
+    findings — producing verdicts like "the AI is rate limited, indicating
+    unsustainable growth". Deterministic filter, not LLM-instruction-dependent.
+    Only strips results that are purely error objects — partial research with
+    real data passes through untouched.
+    """
+    if isinstance(result, dict) and result.get("error"):
+        return {"status": "unavailable", "reason": "research could not be completed"}
+    content = result.get("content") if isinstance(result, dict) else None
+    if isinstance(content, dict) and content.get("error"):
+        return {"status": "unavailable", "reason": "research could not be completed"}
+    return result
+
+
 class DebateOrchestrator:
     def __init__(self, state: DebateState):
         self.state = state
@@ -152,8 +171,8 @@ class DebateOrchestrator:
                     f"Round 1 failed — {agent_name} agent raised an unrecoverable error: {raw_result}"
                 )
 
-        advocate_out = parse_json_response(advocate_raw)
-        challenger_out = parse_json_response(challenger_raw)
+        advocate_out = _sanitize_agent_result(parse_json_response(advocate_raw))
+        challenger_out = _sanitize_agent_result(parse_json_response(challenger_raw))
 
         self.state.advocate_research = json.dumps(advocate_out)
         self.state.challenger_research = json.dumps(challenger_out)
@@ -197,8 +216,8 @@ class DebateOrchestrator:
                     f"Round 2 failed — {agent_name} agent raised an unrecoverable error: {raw_result}"
                 )
 
-        adv_rebuttal = parse_json_response(adv_raw)
-        chall_rebuttal = parse_json_response(chall_raw)
+        adv_rebuttal = _sanitize_agent_result(parse_json_response(adv_raw))
+        chall_rebuttal = _sanitize_agent_result(parse_json_response(chall_raw))
 
         self.state.advocate_rebuttal = json.dumps(adv_rebuttal)
         self.state.challenger_rebuttal = json.dumps(chall_rebuttal)
