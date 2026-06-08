@@ -1,0 +1,29 @@
+{
+  "cached_at": 1780852151.3694332,
+  "company_name": "Meesho",
+  "data": {
+    "company": "Meesho",
+    "source": "ZaubaCorp (MCA filings) + AmbitionBox",
+    "registration": {
+      "cin": "U64990KA2019FTC123770",
+      "status": "Active",
+      "incorporation_date": "2019-04-25"
+    },
+    "directors": [],
+    "charge_documents": [],
+    "compliance_signals": [],
+    "salary_benchmarks": {
+      "source": "AmbitionBox employee reports",
+      "roles": [],
+      "data_found": false
+    },
+    "red_flags": [
+      "Fewer than 2 directors on record \u2014 potential governance concern"
+    ],
+    "positive_signals": [
+      "Company is active and compliant per MCA registry",
+      "No charge documents filed \u2014 company operates debt-free"
+    ],
+    "data_quality": "full"
+  }
+}

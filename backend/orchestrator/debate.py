@@ -137,6 +137,51 @@ def _sanitize_agent_result(result: dict) -> dict:
     return result
 
 
+def calculate_data_confidence(state: DebateState) -> dict:
+    """
+    Mechanical confidence — not LLM-generated.
+    Based on actual tool call results, not model opinion.
+    """
+    tools_called = state.tools_called_total
+    tools_with_data = state.tools_returned_data_total
+
+    if tools_called == 0:
+        return {"score": 0.0, "label": "NO DATA", "tools_summary": "0/0 tools returned data"}
+
+    ratio = tools_with_data / tools_called
+
+    if ratio == 1.0:
+        label = "HIGH"
+    elif ratio >= 0.6:
+        label = "MODERATE"
+    elif ratio >= 0.3:
+        label = "LOW"
+    else:
+        label = "VERY LOW — treat as general guidance only"
+
+    return {
+        "score": round(ratio, 2),
+        "label": label,
+        "tools_summary": f"{tools_with_data}/{tools_called} data sources returned results",
+    }
+
+
+def validate_verdict(verdict: dict) -> tuple[bool, list[str]]:
+    """Gate before verdict reaches the user. Returns (is_valid, failure_reasons)."""
+    checks = [
+        (isinstance(verdict.get("bull_score"), (int, float)), "bull_score missing or not numeric"),
+        (isinstance(verdict.get("bear_score"), (int, float)), "bear_score missing or not numeric"),
+        (len(verdict.get("verdict", "")) >= 50, "verdict text too short"),
+        (isinstance(verdict.get("what_to_find_out"), list) and len(verdict["what_to_find_out"]) >= 2,
+         "what_to_find_out must have 2+ items"),
+        (any(w in verdict.get("verdict", "").upper()
+             for w in ["JOIN", "DON", "NEGOTIATE", "AVOID", "PROCEED", "INSUFFICIENT"]),
+         "verdict lacks directional guidance"),
+    ]
+    failures = [reason for passed, reason in checks if not passed]
+    return len(failures) == 0, failures
+
+
 class DebateOrchestrator:
     def __init__(self, state: DebateState):
         self.state = state
@@ -159,8 +204,8 @@ class DebateOrchestrator:
         # other mid-flight and silently killing the SSE stream — instead both
         # results (or exceptions) come back so we can surface a clear error.
         advocate_raw, challenger_raw = await asyncio.gather(
-            run_agent_with_tools(advocate_prompt, self.state.query, advocate_model, "Advocate"),
-            run_agent_with_tools(challenger_prompt, self.state.query, challenger_model, "Challenger"),
+            run_agent_with_tools(advocate_prompt, self.state.query, advocate_model, "Advocate", self.state),
+            run_agent_with_tools(challenger_prompt, self.state.query, challenger_model, "Challenger", self.state),
             return_exceptions=True,
         )
 
@@ -204,8 +249,8 @@ class DebateOrchestrator:
         # asyncio.CancelledError (a BaseException, not Exception), which
         # would silently kill the SSE stream past cross_examination_start.
         adv_raw, chall_raw = await asyncio.gather(
-            run_agent_with_tools(advocate_rebuttal_prompt, self.state.query, advocate_model, "Advocate-Rebuttal"),
-            run_agent_with_tools(challenger_prompt, self.state.query, challenger_model, "Challenger-Rebuttal"),
+            run_agent_with_tools(advocate_rebuttal_prompt, self.state.query, advocate_model, "Advocate-Rebuttal", self.state),
+            run_agent_with_tools(challenger_prompt, self.state.query, challenger_model, "Challenger-Rebuttal", self.state),
             return_exceptions=True,
         )
 
@@ -226,11 +271,16 @@ class DebateOrchestrator:
 
     async def run_arbitrator(self) -> dict:
         model = get_load_balanced_model("arbitrator", self.state.model)
+        data_confidence = calculate_data_confidence(self.state)
 
-        profile_context = ""
+        profile_context = (
+            f"\n\nDATA CONFIDENCE (mechanical, computed from real tool results — "
+            f"not opinion): {json.dumps(data_confidence)}\n"
+            "Apply the INSUFFICIENT DATA RULE if label is 'NO DATA' or 'VERY LOW'."
+        )
         if self.state.user_profile:
             p = self.state.user_profile
-            profile_context = (
+            profile_context += (
                 "\n\nUSER CONTEXT (calibrate your advice to this person):\n"
                 f"- Role: {p.get('role') or 'Not specified'}\n"
                 f"- Experience: {p.get('experience') or 'Not specified'}\n"
@@ -255,6 +305,19 @@ class DebateOrchestrator:
 
         verdict = await _call_llm(model, system_prompt, full_transcript, self.state, step="arbitrator")
         verdict = _ensure_valid_verdict(verdict)
+
+        is_valid, failures = validate_verdict(verdict)
+        if not is_valid:
+            logger.warning("Verdict failed validation (%s) — re-running Arbitrator once", failures)
+            retry = await _call_llm(model, system_prompt, full_transcript, self.state, step="arbitrator_retry")
+            retry = _ensure_valid_verdict(retry)
+            is_valid, failures = validate_verdict(retry)
+            verdict = retry
+            if not is_valid:
+                verdict["verdict_quality"] = "LOW"
+                verdict["verdict_quality_reason"] = failures
+
+        verdict["data_confidence"] = data_confidence
         self.state.verdict = verdict
         self.state.completed_at = time.time()
         self.state.round = 3

@@ -13,6 +13,7 @@ heavy to run reliably on Railway.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -97,6 +98,9 @@ async def get_company_intelligence(input_data: CompanyIntelligenceInput) -> dict
         return cached_result
 
     result = _build_empty_result(input_data.company_name)
+    # Source-registry fields — every claim traces back to where/when it came from.
+    result["retrieved_at"] = datetime.now(timezone.utc).isoformat()
+    result["source_url"] = "mca_filing"
 
     try:
         company_url = await search_zauba_corp(input_data.company_name, input_data.city)

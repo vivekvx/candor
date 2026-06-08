@@ -196,6 +196,7 @@ async def run_agent_with_tools(
     user_message: str,
     model: str,
     agent_name: str,
+    state: Any = None,
 ) -> str:
     """
     Run one debate agent through the full tool-calling loop with provider fallback.
@@ -287,7 +288,7 @@ async def run_agent_with_tools(
 
         messages.append(assistant_message)
         tool_result_messages = await _execute_all_tool_calls(
-            assistant_message.tool_calls, agent_name
+            assistant_message.tool_calls, agent_name, state
         )
         messages.extend(tool_result_messages)
         total_tool_calls_made += len(assistant_message.tool_calls)
@@ -399,7 +400,7 @@ async def _execute_text_function_calls(calls: list[dict], agent_name: str) -> li
 
 
 async def _execute_all_tool_calls(
-    tool_calls: list, agent_name: str
+    tool_calls: list, agent_name: str, state: Any = None
 ) -> list[dict]:
     """
     Execute every tool call the agent requested and return result messages.
@@ -417,6 +418,15 @@ async def _execute_all_tool_calls(
         logger.info("%s calling tool: %s", agent_name, tool_name)
 
         tool_result = await execute_tool_call(tool_name, parsed_arguments)
+
+        # Mechanical confidence inputs — counted from real outcomes, not LLM opinion.
+        if state is not None:
+            state.tools_called_total += 1
+            returned_data = bool(tool_result) and not (
+                isinstance(tool_result, dict) and tool_result.get("status") == "error"
+            )
+            if returned_data:
+                state.tools_returned_data_total += 1
 
         tool_result_messages.append({
             "role": "tool",

@@ -67,3 +67,18 @@ Example of FAILED verdict:
 Example of PASSING verdict:
 "Don't join. The burn rate signal alone makes this too risky
 at 40 LPA — negotiate to 52 LPA or walk away."
+
+## INSUFFICIENT DATA RULE
+Check the data_confidence passed to you before writing a verdict.
+
+If data_confidence.label is "NO DATA" or "VERY LOW":
+- Set bull_score: 5
+- Set bear_score: 5
+- Set verdict: "INSUFFICIENT DATA — The research tools returned no usable data for this company. Run this debate again or research manually before deciding."
+- Set strongest_bull_point: "Unable to assess without data"
+- Set strongest_bear_point: "Unable to assess without data"
+- Set what_to_find_out: ["Verify the company name is spelled correctly", "Check if the company has an online presence", "Search MCA directly at mca.gov.in"]
+- Set if_i_were_you: "Do not make this decision based on this verdict. No data was available."
+- Set negotiation_tip: "Get information first before negotiating."
+
+This is not a failure. This is the honest answer.

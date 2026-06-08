@@ -4,6 +4,16 @@ from typing import Optional
 
 
 @dataclass
+class EvidencePoint:
+    """One traceable evidence item an agent cites — foundation of the trust layer."""
+    claim: str
+    source_url: str        # actual URL, "mca_filing", or "general_knowledge"
+    source_type: str       # "news" | "mca_filing" | "salary_data" | "general_knowledge"
+    retrieved_at: str      # ISO timestamp
+    is_verified: bool      # True if from a tool call, False if from LLM base knowledge
+
+
+@dataclass
 class DebateState:
     query: str
     model: str = "groq/llama-3.3-70b-versatile"
@@ -24,6 +34,11 @@ class DebateState:
     started_at: float = field(default_factory=time.time)
     completed_at: Optional[float] = None
     user_profile: Optional[dict] = None
+
+    # Mechanical confidence inputs — counted from real tool-call outcomes,
+    # not LLM opinion. See calculate_data_confidence in debate.py.
+    tools_called_total: int = 0
+    tools_returned_data_total: int = 0
 
     def add_usage(self, input_tokens: int, output_tokens: int, cost: float):
         self.total_input_tokens += input_tokens

@@ -94,6 +94,7 @@ async def run_debate(request: DebateRequest):
                 "total_tokens": state.total_input_tokens + state.total_output_tokens,
                 "cost_usd": round(state.total_cost_usd, 6),
                 "duration_seconds": round(time.time() - state.started_at, 2),
+                "data_confidence": verdict.get("data_confidence"),
             }
 
             # Save debate for shareable link

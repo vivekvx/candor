@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 from tavily import AsyncTavilyClient
@@ -29,11 +30,17 @@ async def tavily_search(query: str, max_results: int = 5) -> list[dict[str, Any]
         logger.warning("Tavily search failed for '%s': %s — returning no results", query, error)
         return []
 
+    retrieved_at = datetime.now(timezone.utc).isoformat()
     results = []
     for r in response.get("results", []):
+        url = r.get("url", "")
         results.append({
-            "url": r.get("url", ""),
+            "url": url,
             "title": r.get("title", ""),
             "content": r.get("content", ""),
+            # Source-registry fields — let agents/Arbitrator trace every claim
+            # back to where (and when) it came from.
+            "source_url": url or "general_knowledge",
+            "retrieved_at": retrieved_at,
         })
     return results
