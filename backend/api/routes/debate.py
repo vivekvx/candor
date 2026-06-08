@@ -78,13 +78,51 @@ class DebateRequest(BaseModel):
     user_profile: Optional[UserProfile] = None
 
 
+def _get_supabase_client():
+    """Lazily build a Supabase client when both credentials are configured.
+
+    Returns None (never raises) when credentials are missing or the SDK
+    fails to initialize — callers fall back to file storage silently.
+    """
+    if not (settings.supabase_url and settings.supabase_key):
+        return None
+    try:
+        from supabase import create_client
+        return create_client(settings.supabase_url, settings.supabase_key)
+    except Exception as error:
+        logger.warning("Supabase client init failed — falling back to /tmp cache: %s", error)
+        return None
+
+
+def _file_path(key: str) -> Path:
+    return DEBATES_DIR / f"{key}.json"
+
+
 def save_debate(debate_id: str, data: dict):
-    path = DEBATES_DIR / f"{debate_id}.json"
-    path.write_text(json.dumps(data))
+    client = _get_supabase_client()
+    if client is not None:
+        try:
+            client.table("debates").upsert({"id": debate_id, "data": data}).execute()
+            return
+        except Exception as error:
+            logger.warning("Supabase save_debate failed — falling back to /tmp: %s", error)
+
+    _file_path(debate_id).write_text(json.dumps(data))
 
 
 def load_debate(debate_id: str) -> dict | None:
-    path = DEBATES_DIR / f"{debate_id}.json"
+    client = _get_supabase_client()
+    if client is not None:
+        try:
+            result = client.table("debates").select("data").eq("id", debate_id).limit(1).execute()
+            rows = result.data or []
+            if rows:
+                return rows[0].get("data")
+            return None
+        except Exception as error:
+            logger.warning("Supabase load_debate failed — falling back to /tmp: %s", error)
+
+    path = _file_path(debate_id)
     if path.exists():
         return json.loads(path.read_text())
     return None
@@ -92,16 +130,35 @@ def load_debate(debate_id: str) -> dict | None:
 
 def record_outcome(debate_id: str, outcome: str, timestamp: str) -> None:
     """Append-only — never delete or modify a recorded outcome."""
-    path = DEBATES_DIR / f"outcome_{debate_id}.json"
-    path.write_text(json.dumps({
+    payload = {
         "debate_id": debate_id,
         "outcome": outcome,
         "reported_at": timestamp,
-    }))
+    }
+    client = _get_supabase_client()
+    if client is not None:
+        try:
+            client.table("debates").upsert({"id": f"outcome_{debate_id}", "data": payload}).execute()
+            return
+        except Exception as error:
+            logger.warning("Supabase record_outcome failed — falling back to /tmp: %s", error)
+
+    _file_path(f"outcome_{debate_id}").write_text(json.dumps(payload))
 
 
 def get_outcome(debate_id: str) -> dict | None:
-    path = DEBATES_DIR / f"outcome_{debate_id}.json"
+    client = _get_supabase_client()
+    if client is not None:
+        try:
+            result = client.table("debates").select("data").eq("id", f"outcome_{debate_id}").limit(1).execute()
+            rows = result.data or []
+            if rows:
+                return rows[0].get("data")
+            return None
+        except Exception as error:
+            logger.warning("Supabase get_outcome failed — falling back to /tmp: %s", error)
+
+    path = _file_path(f"outcome_{debate_id}")
     if path.exists():
         return json.loads(path.read_text())
     return None

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     frontend_url: str = "http://localhost:5173"
     default_model: str = "groq/llama-3.3-70b-versatile"
+    supabase_url: str = ""
+    supabase_key: str = ""
 
     class Config:
         env_file = str(Path(__file__).parent / ".env")
