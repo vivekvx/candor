@@ -151,12 +151,6 @@ def get_fallback_chain() -> list[str]:
     else:
         logger.debug("groq paid model skipped — key not configured")
 
-    # Anthropic — only if ANTHROPIC_API_KEY is set
-    if settings.anthropic_api_key and len(settings.anthropic_api_key) > 8:
-        chain.append("anthropic/claude-haiku-3-5")
-    else:
-        logger.debug("anthropic model skipped — key not configured")
-
     return chain
 
 
